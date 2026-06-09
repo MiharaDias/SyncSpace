@@ -31,6 +31,8 @@ def _get_departments() -> list:
             return json.loads(row["value"])
         except Exception:
             pass
+    # No DB row yet — seed defaults so departments are always DB-managed
+    _save_departments(list(_DEFAULT_DEPARTMENTS))
     return list(_DEFAULT_DEPARTMENTS)
 
 
