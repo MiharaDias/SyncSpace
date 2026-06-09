@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+
+  backend:
+    build: ./backend
+    container_name: syncspace-backend
+    env_file: ./backend/.env.production
+    volumes:
+      - ./backend/credentials.json:/app/credentials.json:ro
+    restart: unless-stopped
+    networks:
+      - syncspace-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/auth/departments"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build: ./frontend
+    container_name: syncspace-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - syncspace-net
+
+networks:
+  syncspace-net:
+    driver: bridge

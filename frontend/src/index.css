@@ -1,0 +1,63 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 11%;
+    --foreground: 213 31% 91%;
+    --card: 222 47% 14%;
+    --card-foreground: 213 31% 91%;
+    --popover: 222 47% 11%;
+    --popover-foreground: 215 20.2% 65.1%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 222 47% 18%;
+    --secondary-foreground: 213 31% 91%;
+    --muted: 222 47% 18%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 222 47% 20%;
+    --accent-foreground: 213 31% 91%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 222 47% 20%;
+    --input: 222 47% 18%;
+    --ring: 217 91% 60%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border box-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased m-0;
+  }
+  #root {
+    @apply w-full min-h-screen;
+  }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-blue-800 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-blue-700; }
+}
+
+@layer components {
+  .badge-required {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-600 text-white;
+  }
+  .badge-optional {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-purple-600 text-white;
+  }
+  .calendar-event {
+    @apply truncate text-xs rounded px-1 py-0.5 cursor-pointer hover:opacity-90 transition-opacity;
+  }
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-white/10 text-blue-200;
+  }
+  .nav-item.active {
+    @apply bg-blue-600/30 text-white;
+  }
+}
