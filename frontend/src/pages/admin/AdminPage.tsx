@@ -32,7 +32,7 @@ export default function AdminPage() {
   const [loading, setLoading]             = useState<Record<string, boolean>>({});
 
   // Department management
-  const { departments, fetch: fetchDepts } = useDepartmentsStore();
+  const { fetch: fetchDepts } = useDepartmentsStore();
   const [adminDepts, setAdminDepts]       = useState<string[]>([]);
   const [newDeptName, setNewDeptName]     = useState('');
   const [deptError, setDeptError]         = useState('');

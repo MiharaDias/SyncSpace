@@ -9,7 +9,7 @@ RUN npm ci
 COPY . .
 
 # VITE_API_URL is empty so all /api/ calls are relative — nginx proxies them
-RUN VITE_API_URL="" npm run build
+RUN VITE_API_URL="" npx vite build
 
 # ── Stage 2: serve with Nginx ─────────────────────────────────────────────────
 FROM nginx:alpine

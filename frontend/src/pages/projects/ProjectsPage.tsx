@@ -280,7 +280,7 @@ function TaskQuickDialog({ task, statuses, onClose, onUpdate }: {
                 </div>
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">Priority</p>
-                  <Select value={editForm.priority} onValueChange={v => setEditForm(f => ({ ...f, priority: v }))}>
+                  <Select value={editForm.priority} onValueChange={v => setEditForm(f => ({ ...f, priority: v as 'low' | 'medium' | 'high' | 'urgent' }))}>
                     <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {(['low','medium','high','urgent'] as const).map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
@@ -400,7 +400,7 @@ function ProjectFormDialog({
 
   // Search users as they type in member picker
   useEffect(() => {
-    if (!memberSearch.trim() || form.visibility !== 'members') { setMemberResults([]); return; }
+    if (!memberSearch.trim() || form.visibility !== 'users') { setMemberResults([]); return; }
     const t = setTimeout(async () => {
       const res = await api.get(`/api/users?search=${encodeURIComponent(memberSearch.trim())}`).catch(() => null);
       if (res) setMemberResults(res.data);
@@ -455,7 +455,7 @@ function ProjectFormDialog({
       const project: Project = res.data;
 
       // If members-only, add selected members
-      if (form.visibility === 'members' && !existing && selectedMembers.length > 0) {
+      if (form.visibility === 'users' && !existing && selectedMembers.length > 0) {
         await Promise.all(
           selectedMembers.map(m =>
             api.post(`/api/projects/${project.id}/members`, { user_id: m.id, role: 'member' }).catch(() => {})
@@ -508,7 +508,7 @@ function ProjectFormDialog({
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="department">By Department</SelectItem>
-                  <SelectItem value="members">Members Only</SelectItem>
+                  <SelectItem value="users">Members Only</SelectItem>
                   <SelectItem value="private">Private</SelectItem>
                 </SelectContent>
               </Select>
@@ -545,7 +545,7 @@ function ProjectFormDialog({
             </div>
           )}
 
-          {form.visibility === 'members' && !existing && (
+          {form.visibility === 'users' && !existing && (
             <div className="space-y-2">
               <Label>Add Members</Label>
               {/* Selected chips */}
@@ -724,7 +724,6 @@ function ProjectDetail({ projectId, onBack }: { projectId: string; onBack: () =>
   const [selectedMemberId, setSelectedMemberId] = useState('');
   const memberSearchRef = useRef<HTMLDivElement>(null);
 
-  const canManage = user?.role === 'administrator' || user?.role === 'manager';
 
   const load = useCallback(async () => {
     try {
@@ -854,7 +853,7 @@ function ProjectDetail({ projectId, onBack }: { projectId: string; onBack: () =>
             <Badge variant="secondary" className="capitalize">{project.status.replace('_', ' ')}</Badge>
             {project.visibility === 'private' && <Lock className="w-3.5 h-3.5 text-muted-foreground" />}
             {project.visibility === 'department' && <Building2 className="w-3.5 h-3.5 text-muted-foreground" />}
-            {project.visibility === 'members' && <Users className="w-3.5 h-3.5 text-muted-foreground" />}
+            {project.visibility === 'users' && <Users className="w-3.5 h-3.5 text-muted-foreground" />}
           </div>
           {project.description && (
             <p className="text-sm text-muted-foreground mt-1">{project.description}</p>
