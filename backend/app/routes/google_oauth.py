@@ -42,9 +42,40 @@ SIGNIN_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.profile",
 ]
 
-# FIX C2: In-memory CSRF state store mapping random_token -> {user_id or type}
-# In production use Redis with a short TTL instead.
-_oauth_state_store: dict[str, dict] = {}   # token -> {"type": "calendar"|"signin", "user_id"?: str}
+# OAuth state store backed by the database so it survives container restarts
+# and works correctly with multiple gunicorn workers.
+# Keys are stored in system_settings as "oauth:{token}" with a 10-min TTL.
+
+import time as _time
+import json as _json
+
+def _state_put(token: str, data: dict) -> None:
+    """Persist OAuth state to DB with a 10-minute expiry."""
+    data["_exp"] = _time.time() + 600
+    from app import supabase as _sb
+    _sb.table("system_settings").upsert(
+        {"key": f"oauth:{token}", "value": _json.dumps(data)},
+        on_conflict="key"
+    ).execute()
+
+def _state_pop(token: str) -> dict | None:
+    """Retrieve and immediately delete OAuth state from DB. Returns None if missing or expired."""
+    from app import supabase as _sb
+    from app.utils.auth_helpers import q_single as _qs
+    key = f"oauth:{token}"
+    row = _qs(_sb.table("system_settings").select("value").eq("key", key))
+    if not row:
+        return None
+    # Always delete — one-time use
+    _sb.table("system_settings").delete().eq("key", key).execute()
+    try:
+        data = _json.loads(row["value"])
+        if data.get("_exp", 0) < _time.time():
+            return None
+        data.pop("_exp", None)
+        return data
+    except Exception:
+        return None
 
 
 def _make_flow(state=None, scopes=None, redirect_uri=None):
@@ -81,7 +112,7 @@ def google_signin():
         return jsonify({"error": "Google OAuth not configured"}), 503
 
     csrf_token = secrets.token_urlsafe(32)
-    _oauth_state_store[csrf_token] = {"type": "signin"}
+    _state_put(csrf_token, {"type": "signin"})
 
     flow = _make_flow(scopes=SIGNIN_SCOPES, redirect_uri=Config.GOOGLE_SIGNIN_REDIRECT_URI)
     auth_url, _ = flow.authorization_url(
@@ -102,7 +133,7 @@ def google_signin_callback():
     if error or not code or not state:
         return redirect(f"{Config.FRONTEND_URL}/login?google_error=access_denied")
 
-    state_data = _oauth_state_store.pop(state, None)
+    state_data = _state_pop(state)
     if not state_data or state_data.get("type") != "signin":
         return redirect(f"{Config.FRONTEND_URL}/login?google_error=invalid_state")
 
@@ -150,13 +181,13 @@ def google_signin_callback():
             # New user — need to complete profile (choose departments, etc.)
             # Store temp signup data in state store (short-lived)
             temp_token = secrets.token_urlsafe(32)
-            _oauth_state_store[temp_token] = {
+            _state_put(temp_token, {
                 "type": "signup",
                 "google_id": google_id,
                 "email": google_email,
                 "name": google_name,
                 "picture": google_pic,
-            }
+            })
             qs = urlencode({"temp": temp_token, "email": google_email, "name": google_name})
             return redirect(f"{Config.FRONTEND_URL}/google-signup?{qs}")
 
@@ -173,7 +204,7 @@ def complete_google_signup():
     if not temp_token:
         return jsonify({"error": "temp_token required"}), 400
 
-    state_data = _oauth_state_store.pop(temp_token, None)
+    state_data = _state_pop(temp_token)
     if not state_data or state_data.get("type") != "signup":
         return jsonify({"error": "Invalid or expired token"}), 400
 
@@ -304,7 +335,7 @@ def connect_google():
 
     # FIX C2: Use a random, unpredictable state token instead of exposing user_id.
     csrf_token = secrets.token_urlsafe(32)
-    _oauth_state_store[csrf_token] = {"type": "calendar", "user_id": user_id}
+    _state_put(csrf_token, {"type": "calendar", "user_id": user_id})
 
     flow = _make_flow()
     auth_url, _ = flow.authorization_url(
@@ -327,7 +358,7 @@ def google_callback():
         return redirect(f"{Config.FRONTEND_URL}/settings?google_error=access_denied")
 
     # FIX C2: Validate the state token — reject requests we never issued
-    state_data = _oauth_state_store.pop(state, None)
+    state_data = _state_pop(state)
     if not state_data or state_data.get("type") != "calendar":
         return redirect(f"{Config.FRONTEND_URL}/settings?google_error=invalid_state")
     user_id = state_data["user_id"]
