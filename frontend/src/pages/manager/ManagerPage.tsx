@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, addDays } from 'date-fns';
-import { ChevronLeft, ChevronRight, BarChart3, Users, Calendar, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, BarChart3, Users, Calendar, RefreshCw, X, Search } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
-import { Checkbox } from '../../components/ui/checkbox';
+import { Input } from '../../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/tabs';
 import { Badge } from '../../components/ui/badge';
@@ -17,8 +17,7 @@ const COLORS = ['#3b82f6', '#22c55e', '#a855f7', '#f97316', '#ec4899', '#14b8a6'
 
 export default function ManagerPage() {
   const { user } = useAuthStore();
-  const [deptUsers, setDeptUsers] = useState<User[]>([]);
-  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  const [selectedUsers, setSelectedUsers] = useState<User[]>([]);
   const [teamEvents, setTeamEvents] = useState<any[]>([]);
   const [weekDate, setWeekDate] = useState(new Date());
   const [meetingStats, setMeetingStats] = useState<any[]>([]);
@@ -28,15 +27,18 @@ export default function ManagerPage() {
   const [syncing, setSyncing] = useState(false);
   const [newMeetingTime, setNewMeetingTime] = useState<Date | null>(null);
 
+  // User search/filter state for the sidebar
+  const [userSearch, setUserSearch] = useState('');
+  const [filterDept, setFilterDept] = useState('');
+  const [filterRole, setFilterRole] = useState('');
+  const [searchResults, setSearchResults] = useState<User[]>([]);
+
   useEffect(() => {
     api.get('/api/users/departments').then(r => setDepartments(r.data)).catch(() => {});
   }, []);
 
   useEffect(() => {
     if (!department) return;
-    api.get(`/api/manager/department-users?department=${department}`).then(r => {
-      setDeptUsers(r.data);
-    }).catch(() => {});
     api.get(`/api/manager/meeting-stats?department=${department}`).then(r => {
       setMeetingStats(r.data);
     }).catch(() => {});
@@ -45,11 +47,23 @@ export default function ManagerPage() {
     }).catch(() => {});
   }, [department]);
 
+  // Search users for the sidebar picker
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (userSearch) params.set('search', userSearch);
+    if (filterDept) params.set('department', filterDept);
+    api.get(`/api/users?${params}`).then(r => {
+      let results: User[] = r.data.filter((u: User) => u.id !== user?.id);
+      if (filterRole) results = results.filter(u => u.role === filterRole);
+      setSearchResults(results);
+    }).catch(() => {});
+  }, [userSearch, filterDept, filterRole, user?.id]);
+
   const fetchTeamCalendar = useCallback(async () => {
-    if (selectedUsers.size === 0) return;
+    if (selectedUsers.length === 0) { setTeamEvents([]); return; }
     const ws = startOfWeek(weekDate, { weekStartsOn: 0 });
     const we = endOfWeek(weekDate, { weekStartsOn: 0 });
-    const ids = Array.from(selectedUsers).join('&user_ids=');
+    const ids = selectedUsers.map(u => u.id).join('&user_ids=');
     try {
       const res = await api.get(`/api/manager/team-calendar?user_ids=${ids}&start=${ws.toISOString()}&end=${we.toISOString()}`);
       setTeamEvents(res.data);
@@ -58,22 +72,23 @@ export default function ManagerPage() {
 
   useEffect(() => { fetchTeamCalendar(); }, [fetchTeamCalendar]);
 
-  const toggleUser = (uid: string) => {
-    setSelectedUsers(prev => {
-      const next = new Set(prev);
-      next.has(uid) ? next.delete(uid) : next.add(uid);
-      return next;
-    });
+  const addUser = (u: User) => {
+    setSelectedUsers(prev => prev.some(s => s.id === u.id) ? prev : [...prev, u]);
+  };
+
+  const removeUser = (uid: string) => {
+    setSelectedUsers(prev => prev.filter(u => u.id !== uid));
+  };
+
+  const selectAll = () => {
+    const toAdd = searchResults.filter(u => !selectedUsers.some(s => s.id === u.id));
+    setSelectedUsers(prev => [...prev, ...toAdd]);
   };
 
   const syncTeamCalendar = async () => {
-    if (selectedUsers.size === 0) return;
+    if (selectedUsers.length === 0) return;
     setSyncing(true);
-    try {
-      await fetchTeamCalendar();
-    } finally {
-      setSyncing(false);
-    }
+    try { await fetchTeamCalendar(); } finally { setSyncing(false); }
   };
 
   const handleSlotClick = (day: Date, hour: number) => {
@@ -83,11 +98,11 @@ export default function ManagerPage() {
   };
 
   const userColorMap: Record<string, string> = {};
-  Array.from(selectedUsers).forEach((uid, i) => { userColorMap[uid] = COLORS[i % COLORS.length]; });
-
-  const selectedUserObjects = deptUsers.filter(u => selectedUsers.has(u.id));
+  selectedUsers.forEach((u, i) => { userColorMap[u.id] = COLORS[i % COLORS.length]; });
 
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(weekDate, { weekStartsOn: 0 }), i));
+
+  const unaddedResults = searchResults.filter(u => !selectedUsers.some(s => s.id === u.id));
 
   return (
     <div className="space-y-5">
@@ -115,19 +130,120 @@ export default function ManagerPage() {
         {/* Team Calendar */}
         <TabsContent value="calendar" className="mt-4">
           <div className="grid lg:grid-cols-4 gap-4">
-            {/* User selector */}
-            <Card className="border-white/10">
-              <CardHeader className="pb-2">
+
+            {/* User selector sidebar */}
+            <Card className="border-white/10 self-start">
+              <CardHeader className="pb-2 pt-4 px-4">
                 <CardTitle className="text-sm">Team Members</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {deptUsers.map((u) => (
-                  <label key={u.id} className="flex items-center gap-2 cursor-pointer hover:bg-white/5 px-2 py-1.5 rounded-lg">
-                    <Checkbox checked={selectedUsers.has(u.id)} onCheckedChange={() => toggleUser(u.id)} />
-                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[Array.from(selectedUsers).indexOf(u.id) % COLORS.length] || '#64748b' }} />
-                    <span className="text-sm text-white flex-1">{u.full_name}</span>
-                  </label>
-                ))}
+              <CardContent className="px-3 pb-4 space-y-3">
+
+                {/* Selected list */}
+                {selectedUsers.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        Selected ({selectedUsers.length})
+                      </p>
+                      <button
+                        onClick={() => setSelectedUsers([])}
+                        className="text-[10px] text-red-400 hover:text-red-300"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                    <div className="space-y-1">
+                      {selectedUsers.map((u, i) => (
+                        <div key={u.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/5">
+                          <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-white truncate">{u.full_name}</p>
+                            <p className="text-[10px] text-muted-foreground truncate">{u.department}</p>
+                          </div>
+                          <button onClick={() => removeUser(u.id)} className="text-muted-foreground hover:text-white shrink-0">
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="border-t border-white/10" />
+                  </div>
+                )}
+
+                {/* Search & filters */}
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                    <Input
+                      placeholder="Name or email…"
+                      value={userSearch}
+                      onChange={e => setUserSearch(e.target.value)}
+                      className="pl-6 h-7 text-xs"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Select value={filterDept || '_all'} onValueChange={v => setFilterDept(v === '_all' ? '' : v)}>
+                      <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Dept" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_all">All depts</SelectItem>
+                        {departments.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Select value={filterRole || '_all'} onValueChange={v => setFilterRole(v === '_all' ? '' : v)}>
+                      <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Role" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_all">All roles</SelectItem>
+                        <SelectItem value="user">User</SelectItem>
+                        <SelectItem value="manager">Manager</SelectItem>
+                        <SelectItem value="administrator">Admin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Select all matching filter */}
+                {unaddedResults.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full h-7 text-xs gap-1.5"
+                    onClick={selectAll}
+                  >
+                    <Users className="w-3 h-3" />
+                    Select All ({unaddedResults.length})
+                  </Button>
+                )}
+
+                {/* Search results */}
+                <div className="space-y-0.5 max-h-64 overflow-y-auto">
+                  {searchResults.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-4">No users found</p>
+                  ) : (
+                    searchResults.map(u => {
+                      const isAdded = selectedUsers.some(s => s.id === u.id);
+                      return (
+                        <div key={u.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-white truncate">{u.full_name}</p>
+                            <p className="text-[10px] text-muted-foreground truncate">
+                              {u.department} · <span className="capitalize">{u.role}</span>
+                            </p>
+                          </div>
+                          {isAdded ? (
+                            <span className="text-[10px] text-green-400 shrink-0">✓ Added</span>
+                          ) : (
+                            <button
+                              onClick={() => addUser(u)}
+                              className="text-[11px] text-blue-400 hover:text-blue-300 font-medium shrink-0"
+                            >
+                              + Add
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </CardContent>
             </Card>
 
@@ -149,8 +265,8 @@ export default function ManagerPage() {
                   size="sm"
                   variant="outline"
                   onClick={syncTeamCalendar}
-                  disabled={syncing || selectedUsers.size === 0}
-                  title={selectedUsers.size === 0 ? 'Select team members to sync' : 'Refresh calendar from latest data'}
+                  disabled={syncing || selectedUsers.length === 0}
+                  title={selectedUsers.length === 0 ? 'Add team members to sync' : 'Refresh calendar from latest data'}
                   className="gap-2"
                 >
                   <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
@@ -200,7 +316,7 @@ export default function ManagerPage() {
                             const color = userColorMap[ev.user_id] || '#64748b';
                             return (
                               <div key={`${ev.id}-${i}`}
-                                className="absolute left-0.5 right-0.5 rounded px-1 z-10 overflow-hidden"
+                                className="absolute left-0.5 right-0.5 rounded px-1 z-10 overflow-hidden pointer-events-none"
                                 style={{ top, height, backgroundColor: color + '33', borderLeft: `2px solid ${color}` }}>
                                 <p className="text-[10px] text-white truncate">{ev.title}</p>
                                 <p className="text-[9px]" style={{ color }}>{ev.user_name}</p>
@@ -212,6 +328,18 @@ export default function ManagerPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Color legend */}
+              {selectedUsers.length > 0 && (
+                <div className="flex flex-wrap gap-3 mt-3">
+                  {selectedUsers.map((u, i) => (
+                    <div key={u.id} className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                      <span className="text-xs text-muted-foreground">{u.full_name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </TabsContent>
@@ -273,7 +401,7 @@ export default function ManagerPage() {
         <NewMeetingDialog
           open={!!newMeetingTime}
           initialTime={newMeetingTime}
-          initialRequiredAttendees={selectedUserObjects}
+          initialRequiredAttendees={selectedUsers}
           onClose={() => setNewMeetingTime(null)}
           onSuccess={() => setNewMeetingTime(null)}
         />
