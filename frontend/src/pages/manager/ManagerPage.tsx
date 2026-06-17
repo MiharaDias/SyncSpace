@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, addDays } from 'date-fns';
-import { ChevronLeft, ChevronRight, BarChart3, Users, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, BarChart3, Users, Calendar, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Checkbox } from '../../components/ui/checkbox';
@@ -11,6 +11,7 @@ import api from '../../lib/api';
 import type { User } from '../../types';
 import { useAuthStore } from '../../store/authStore';
 import { parseISO, isSameDay, getHours, getMinutes } from 'date-fns';
+import NewMeetingDialog from '../../components/meetings/NewMeetingDialog';
 
 const COLORS = ['#3b82f6', '#22c55e', '#a855f7', '#f97316', '#ec4899', '#14b8a6', '#f59e0b', '#6366f1'];
 
@@ -24,6 +25,8 @@ export default function ManagerPage() {
   const [taskOverview, setTaskOverview] = useState<any>(null);
   const [department, setDepartment] = useState(user?.department || '');
   const [departments, setDepartments] = useState<string[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [newMeetingTime, setNewMeetingTime] = useState<Date | null>(null);
 
   useEffect(() => {
     api.get('/api/users/departments').then(r => setDepartments(r.data)).catch(() => {});
@@ -63,8 +66,26 @@ export default function ManagerPage() {
     });
   };
 
+  const syncTeamCalendar = async () => {
+    if (selectedUsers.size === 0) return;
+    setSyncing(true);
+    try {
+      await fetchTeamCalendar();
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleSlotClick = (day: Date, hour: number) => {
+    const time = new Date(day);
+    time.setHours(hour, 0, 0, 0);
+    setNewMeetingTime(time);
+  };
+
   const userColorMap: Record<string, string> = {};
   Array.from(selectedUsers).forEach((uid, i) => { userColorMap[uid] = COLORS[i % COLORS.length]; });
+
+  const selectedUserObjects = deptUsers.filter(u => selectedUsers.has(u.id));
 
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(weekDate, { weekStartsOn: 0 }), i));
 
@@ -113,14 +134,27 @@ export default function ManagerPage() {
             {/* Calendar */}
             <div className="lg:col-span-3">
               <div className="flex items-center justify-between mb-3">
-                <Button variant="ghost" size="icon" onClick={() => setWeekDate(w => subWeeks(w, 1))}>
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <p className="text-sm font-medium">
-                  {format(startOfWeek(weekDate, { weekStartsOn: 0 }), 'MMM d')} – {format(endOfWeek(weekDate, { weekStartsOn: 0 }), 'MMM d, yyyy')}
-                </p>
-                <Button variant="ghost" size="icon" onClick={() => setWeekDate(w => addWeeks(w, 1))}>
-                  <ChevronRight className="w-4 h-4" />
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" onClick={() => setWeekDate(w => subWeeks(w, 1))}>
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <p className="text-sm font-medium min-w-[180px] text-center">
+                    {format(startOfWeek(weekDate, { weekStartsOn: 0 }), 'MMM d')} – {format(endOfWeek(weekDate, { weekStartsOn: 0 }), 'MMM d, yyyy')}
+                  </p>
+                  <Button variant="ghost" size="icon" onClick={() => setWeekDate(w => addWeeks(w, 1))}>
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={syncTeamCalendar}
+                  disabled={syncing || selectedUsers.size === 0}
+                  title={selectedUsers.size === 0 ? 'Select team members to sync' : 'Refresh calendar from latest data'}
+                  className="gap-2"
+                >
+                  <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                  {syncing ? 'Syncing…' : 'Sync'}
                 </Button>
               </div>
 
@@ -148,7 +182,11 @@ export default function ManagerPage() {
                     {weekDays.map(day => (
                       <div key={day.toISOString()} className="relative border-l border-white/10">
                         {Array.from({ length: 24 }, (_, h) => (
-                          <div key={h} className="h-12 border-b border-white/5" />
+                          <div
+                            key={h}
+                            className="h-12 border-b border-white/5 cursor-pointer hover:bg-white/3 transition-colors"
+                            onClick={() => handleSlotClick(day, h)}
+                          />
                         ))}
                         {teamEvents
                           .filter(e => isSameDay(parseISO(e.start), day))
@@ -230,6 +268,16 @@ export default function ManagerPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {newMeetingTime && (
+        <NewMeetingDialog
+          open={!!newMeetingTime}
+          initialTime={newMeetingTime}
+          initialRequiredAttendees={selectedUserObjects}
+          onClose={() => setNewMeetingTime(null)}
+          onSuccess={() => setNewMeetingTime(null)}
+        />
+      )}
     </div>
   );
 }

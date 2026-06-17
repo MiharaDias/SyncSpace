@@ -43,11 +43,12 @@ interface AttendeeStatus {
 interface Props {
   open: boolean;
   initialTime?: Date;
+  initialRequiredAttendees?: User[];
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export default function NewMeetingDialog({ open, initialTime, onClose, onSuccess }: Props) {
+export default function NewMeetingDialog({ open, initialTime, initialRequiredAttendees, onClose, onSuccess }: Props) {
   const { user } = useAuthStore();
   const [step, setStep] = useState<Step>('form');
   const [form, setForm] = useState({
@@ -59,7 +60,7 @@ export default function NewMeetingDialog({ open, initialTime, onClose, onSuccess
     recurrence_type: 'none',
     recurrence_end_date: '',
   });
-  const [requiredAttendees, setRequiredAttendees] = useState<User[]>([]);
+  const [requiredAttendees, setRequiredAttendees] = useState<User[]>(initialRequiredAttendees ?? []);
   const [optionalAttendees, setOptionalAttendees] = useState<User[]>([]);
   const [availability, setAvailability] = useState<AvailabilityResult | null>(null);
   const [suggestedSlots, setSuggestedSlots] = useState<SuggestedSlot[]>([]);
