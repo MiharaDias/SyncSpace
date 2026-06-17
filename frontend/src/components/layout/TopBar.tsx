@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import api from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
+import { useDepartmentsStore } from '../../lib/departments';
 
 export function TopBar({ title }: { title: string }) {
   const { user, currentDepartment, setCurrentDepartment } = useAuthStore();
+  const { departments: allDepts, fetch: fetchDepts } = useDepartmentsStore();
   const [unreadCount, setUnreadCount] = useState(0);
   const [deptOpen, setDeptOpen] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
@@ -16,6 +18,11 @@ export function TopBar({ title }: { title: string }) {
       .then(r => setUnreadCount(r.data.count))
       .catch(() => {});
   }, [user]);
+
+  // Admins need the full department list from the store
+  useEffect(() => {
+    if (user?.role === 'administrator') fetchDepts();
+  }, [user?.role]);
 
   // Close dept dropdown on outside click
   useEffect(() => {
@@ -28,12 +35,14 @@ export function TopBar({ title }: { title: string }) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Build the list of departments this user can switch to
-  const userDepts: string[] = user?.departments?.length
-    ? user.departments
-    : user?.department
-    ? [user.department]
-    : [];
+  // Admins always see all departments; other users see their assigned departments
+  const userDepts: string[] = user?.role === 'administrator'
+    ? allDepts
+    : user?.departments?.length
+      ? user.departments
+      : user?.department
+        ? [user.department]
+        : [];
 
   const canSwitch = userDepts.length > 1 || user?.role === 'administrator';
 

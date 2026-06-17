@@ -254,7 +254,13 @@ def me():
     user = get_current_user()
     if not user:
         return jsonify({"error": "User not found"}), 404
-    return jsonify(_safe_user(user))
+    safe = _safe_user(user)
+    # Administrators always have access to every department, regardless of what
+    # was stored at registration time (DB may only have their first dept).
+    if safe.get("role") == "administrator":
+        from app.routes.admin import _get_departments
+        safe["departments"] = _get_departments()
+    return jsonify(safe)
 
 
 def _safe_user(user):
