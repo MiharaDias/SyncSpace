@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import api from '../../lib/api';
 import type { Task, User, Project, SubDeadline, ProjectCustomStatus } from '../../types';
 import { useAuthStore } from '../../store/authStore';
+import { useTasksCache } from '../../lib/tasksCache';
 import { formatDate, getPriorityColor } from '../../lib/utils';
 import { Link } from 'react-router-dom';
 
@@ -91,6 +92,8 @@ export default function TasksPage() {
   const [dashboard, setDashboard] = useState<any>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [filter, setFilter] = useState({ status: '', priority: '', project_id: '' });
+
+  const { fetchTasks: fetchTasksCache, invalidate: invalidateTasksCache } = useTasksCache();
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -100,15 +103,12 @@ export default function TasksPage() {
     if (filter.status) params.set('status', filter.status);
     if (filter.priority) params.set('priority', filter.priority);
     if (filter.project_id) params.set('project_id', filter.project_id);
+    const filterKey = params.toString();
     try {
-      const [tasksRes, dashRes, projRes] = await Promise.all([
-        api.get(`/api/tasks?${params}`),
-        api.get('/api/tasks/dashboard'),
-        api.get('/api/projects'),
-      ]);
-      setTasks(tasksRes.data);
-      setDashboard(dashRes.data);
-      setProjects(projRes.data);
+      const data = await fetchTasksCache(filterKey, params.toString());
+      setTasks(data.tasks);
+      setDashboard(data.dashboard);
+      setProjects(data.projects);
     } catch { }
   };
 
@@ -253,14 +253,14 @@ export default function TasksPage() {
         <CreateTaskDialog
           projects={projects}
           onClose={() => setShowCreate(false)}
-          onSuccess={() => { setShowCreate(false); fetchTasks(); }}
+          onSuccess={() => { setShowCreate(false); invalidateTasksCache(); fetchTasks(); }}
         />
       )}
       {selectedTask && (
         <TaskDetailDialog
           task={selectedTask}
           onClose={() => setSelectedTask(null)}
-          onUpdate={() => { setSelectedTask(null); fetchTasks(); }}
+          onUpdate={() => { setSelectedTask(null); invalidateTasksCache(); fetchTasks(); }}
         />
       )}
     </div>

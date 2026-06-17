@@ -17,6 +17,8 @@ import api from '../../lib/api';
 import type { Project, Task, User, ProjectMember, ProjectCustomStatus } from '../../types';
 import { useAuthStore } from '../../store/authStore';
 import { useDepartmentsStore } from '../../lib/departments';
+import { useProjectsCache } from '../../lib/projectsCache';
+import { useTasksCache } from '../../lib/tasksCache';
 import { formatDate, getPriorityColor } from '../../lib/utils';
 
 // ── Circular Progress ─────────────────────────────────────────────────────────
@@ -724,21 +726,18 @@ function ProjectDetail({ projectId, onBack }: { projectId: string; onBack: () =>
   const [selectedMemberId, setSelectedMemberId] = useState('');
   const memberSearchRef = useRef<HTMLDivElement>(null);
 
+  const { fetchDetail, invalidateDetail, invalidateList: invalidateProjectList } = useProjectsCache();
+  const { invalidate: invalidateTasks } = useTasksCache();
 
   const load = useCallback(async () => {
     try {
-      const [projRes, tasksRes, statusRes, membersRes] = await Promise.all([
-        api.get(`/api/projects/${projectId}`),
-        api.get(`/api/tasks?project_id=${projectId}`),
-        api.get(`/api/projects/${projectId}/statuses`),
-        api.get(`/api/projects/${projectId}/members`),
-      ]);
-      setProject(projRes.data);
-      setTasks(tasksRes.data);
-      setStatuses(statusRes.data);
-      setMembers(membersRes.data);
+      const data = await fetchDetail(projectId);
+      setProject(data.project);
+      setTasks(data.tasks);
+      setStatuses(data.statuses);
+      setMembers(data.members);
     } catch { }
-  }, [projectId]);
+  }, [projectId, fetchDetail]);
 
   // Search members as user types
   useEffect(() => {
@@ -804,11 +803,13 @@ function ProjectDetail({ projectId, onBack }: { projectId: string; onBack: () =>
     setMemberSearch('');
     setMemberSearchResults([]);
     setAddingMember(false);
+    invalidateDetail(projectId);
     load();
   };
 
   const removeMember = async (uid: string) => {
     await api.delete(`/api/projects/${projectId}/members/${uid}`).catch(() => {});
+    invalidateDetail(projectId);
     load();
   };
 
@@ -816,17 +817,20 @@ function ProjectDetail({ projectId, onBack }: { projectId: string; onBack: () =>
     if (!newStatus.name.trim()) return;
     await api.post(`/api/projects/${projectId}/statuses`, newStatus).catch(() => {});
     setNewStatus({ name: '', color: '#6366f1' });
+    invalidateDetail(projectId);
     load();
   };
 
   const deleteStatus = async (sid: string) => {
     await api.delete(`/api/projects/${projectId}/statuses/${sid}`).catch(() => {});
+    invalidateDetail(projectId);
     load();
   };
 
   const deleteProject = async () => {
     if (!window.confirm('Delete this project? This cannot be undone.')) return;
     await api.delete(`/api/projects/${projectId}`).catch(() => {});
+    invalidateProjectList();
     onBack();
   };
 
@@ -1191,14 +1195,14 @@ function ProjectDetail({ projectId, onBack }: { projectId: string; onBack: () =>
           projectId={projectId}
           statuses={statuses}
           onClose={() => setShowAddTask(false)}
-          onSuccess={() => { setShowAddTask(false); load(); }}
+          onSuccess={() => { setShowAddTask(false); invalidateDetail(projectId); invalidateTasks(); load(); }}
         />
       )}
       {showEditProject && (
         <ProjectFormDialog
           existing={project}
           onClose={() => setShowEditProject(false)}
-          onSuccess={updated => { setProject(updated); setShowEditProject(false); load(); }}
+          onSuccess={updated => { setProject(updated); setShowEditProject(false); invalidateDetail(projectId); invalidateProjectList(); load(); }}
         />
       )}
       {selectedTask && (
@@ -1206,7 +1210,7 @@ function ProjectDetail({ projectId, onBack }: { projectId: string; onBack: () =>
           task={selectedTask}
           statuses={statuses}
           onClose={() => setSelectedTask(null)}
-          onUpdate={() => { setSelectedTask(null); load(); }}
+          onUpdate={() => { setSelectedTask(null); invalidateDetail(projectId); invalidateTasks(); load(); }}
         />
       )}
     </div>
@@ -1227,20 +1231,18 @@ export default function ProjectsPage() {
 
   const canCreate = user?.role === 'administrator' || user?.role === 'manager';
 
+  const { fetchList, invalidateList } = useProjectsCache();
+  const { invalidate: invalidateAllTasks } = useTasksCache();
+
   const loadProjects = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (currentDepartment && currentDepartment !== 'all') params.set('department', currentDepartment);
-      const [projRes, overviewRes] = await Promise.all([
-        api.get(`/api/projects?${params}`),
-        api.get(`/api/projects/analytics/overview?${params}`),
-      ]);
-      setProjects(projRes.data);
-      setOverview(overviewRes.data);
+      const { projects, overview } = await fetchList(currentDepartment || '');
+      setProjects(projects);
+      setOverview(overview);
     } catch { }
     setLoading(false);
-  }, [currentDepartment]);
+  }, [currentDepartment, fetchList]);
 
   useEffect(() => {
     loadProjects();
@@ -1390,6 +1392,8 @@ export default function ProjectsPage() {
           onClose={() => setShowCreate(false)}
           onSuccess={newProj => {
             setShowCreate(false);
+            invalidateList();
+            invalidateAllTasks();
             navigate(`/projects/${newProj.id}`);
           }}
         />
