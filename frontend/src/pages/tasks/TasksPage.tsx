@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, ChevronRight, ListChecks, Calendar, Flag, CheckCircle2, Clock, LayoutGrid, List } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
@@ -99,6 +99,7 @@ export default function TasksPage() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
   const [dragging, setDragging] = useState<Task | null>(null);
+  const draggingRef = useRef<Task | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [pendingMove, setPendingMove] = useState<{ task: Task; newStatus: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -273,10 +274,12 @@ export default function TasksPage() {
                   onDrop={e => {
                     e.preventDefault();
                     setDragOver(null);
-                    if (dragging && (dragging.status?.toLowerCase() || 'not started') !== status) {
-                      setPendingMove({ task: dragging, newStatus: status });
-                    }
+                    const dropped = draggingRef.current;
+                    draggingRef.current = null;
                     setDragging(null);
+                    if (dropped && (dropped.status?.toLowerCase() || 'not started') !== status) {
+                      setPendingMove({ task: dropped, newStatus: status });
+                    }
                   }}
                 >
                   <div className="px-3 py-2.5 border-b border-white/10 flex items-center justify-between">
@@ -288,8 +291,13 @@ export default function TasksPage() {
                       <div
                         key={task.id}
                         draggable
-                        onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragging(task); }}
-                        onDragEnd={() => { setDragging(null); setDragOver(null); }}
+                        onDragStart={e => {
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', task.id);
+                          draggingRef.current = task;
+                          setTimeout(() => setDragging(task), 0);
+                        }}
+                        onDragEnd={() => { draggingRef.current = null; setDragging(null); setDragOver(null); }}
                         className={`cursor-grab active:cursor-grabbing transition-opacity select-none ${dragging?.id === task.id ? 'opacity-40' : ''}`}
                       >
                         <TaskCard task={task} onClick={() => { if (!dragging) setSelectedTask(task); }} />
