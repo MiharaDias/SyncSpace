@@ -266,8 +266,10 @@ export default function TasksPage() {
                 <div
                   key={status}
                   className={`flex-shrink-0 w-72 rounded-xl border bg-white/3 transition-colors ${columnColor(status)} ${isOver ? 'bg-white/8 ring-1 ring-blue-500/40' : ''}`}
-                  onDragOver={e => { e.preventDefault(); setDragOver(status); }}
-                  onDragLeave={() => setDragOver(null)}
+                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(status); }}
+                  onDragLeave={e => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null);
+                  }}
                   onDrop={e => {
                     e.preventDefault();
                     setDragOver(null);
@@ -286,11 +288,11 @@ export default function TasksPage() {
                       <div
                         key={task.id}
                         draggable
-                        onDragStart={() => setDragging(task)}
+                        onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragging(task); }}
                         onDragEnd={() => { setDragging(null); setDragOver(null); }}
-                        className={`cursor-grab active:cursor-grabbing transition-opacity ${dragging?.id === task.id ? 'opacity-40' : ''}`}
+                        className={`cursor-grab active:cursor-grabbing transition-opacity select-none ${dragging?.id === task.id ? 'opacity-40' : ''}`}
                       >
-                        <TaskCard task={task} onClick={() => setSelectedTask(task)} />
+                        <TaskCard task={task} onClick={() => { if (!dragging) setSelectedTask(task); }} />
                       </div>
                     ))}
                   </div>

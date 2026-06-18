@@ -70,6 +70,19 @@ export default function CalendarPage() {
     setSyncing(false);
   }, [fetchEvents]);
 
+  const openEvent = async (event: CalendarEvent) => {
+    if (event.type === 'meeting') {
+      try {
+        const res = await api.get(`/api/meetings/${event.id}`);
+        setSelectedEvent({ ...event, raw: res.data });
+      } catch {
+        setSelectedEvent(event);
+      }
+    } else {
+      setSelectedEvent(event);
+    }
+  };
+
   const handleSlotClick = (time: Date, e: React.MouseEvent) => {
     setSlotAction({ time, pos: { x: e.clientX, y: e.clientY } });
   };
@@ -119,15 +132,15 @@ export default function CalendarPage() {
       <div className="flex-1 overflow-hidden rounded-xl border border-white/10 bg-white/3">
         {view === 'month' && (
           <MonthView currentDate={currentDate} events={events}
-            onEventClick={setSelectedEvent} onSlotClick={handleSlotClick} />
+            onEventClick={openEvent} onSlotClick={handleSlotClick} />
         )}
         {view === 'week' && (
           <WeekView currentDate={currentDate} events={events}
-            onEventClick={setSelectedEvent} onSlotClick={handleSlotClick} />
+            onEventClick={openEvent} onSlotClick={handleSlotClick} />
         )}
         {view === 'day' && (
           <DayView currentDate={currentDate} events={events}
-            onEventClick={setSelectedEvent} onSlotClick={handleSlotClick} />
+            onEventClick={openEvent} onSlotClick={handleSlotClick} />
         )}
       </div>
 
