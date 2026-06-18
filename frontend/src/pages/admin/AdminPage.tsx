@@ -3,8 +3,10 @@ import { useSearchParams } from 'react-router-dom';
 import {
   UserCheck, Users, Calendar, Activity, BarChart3, Trash2,
   Plus, X, Search, Mail, Building2, Send, Settings, Eye, EyeOff,
-  CheckCircle2, AlertCircle, ExternalLink,
+  CheckCircle2, AlertCircle, ExternalLink, Pencil,
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
+import { Checkbox } from '../../components/ui/checkbox';
 import { Card, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
@@ -50,6 +52,10 @@ export default function AdminPage() {
   const [invSuccess, setInvSuccess]       = useState('');
   const [invLoading, setInvLoading]       = useState(false);
 
+  // Edit-before-approve dialog
+  const [editApproveUser, setEditApproveUser] = useState<User | null>(null);
+  const [editApproveForm, setEditApproveForm] = useState({ role: 'user' as User['role'], departments: [] as string[] });
+
   // Email config
   const [emailCfg, setEmailCfg]           = useState({ smtp_email: '', frontend_url: '', has_password: false, configured: false });
   const [emailForm, setEmailForm]         = useState({ smtp_email: '', smtp_app_password: '', frontend_url: '' });
@@ -88,15 +94,32 @@ export default function AdminPage() {
 
   // ── User actions ─────────────────────────────────────────────────────────────
 
-  const approveUser = async (userId: string) => {
+  const approveUser = async (userId: string, overrides?: { role: User['role']; departments: string[] }) => {
     setLoading(l => ({ ...l, [userId]: true }));
     try {
-      await api.post(`/api/admin/approve-user/${userId}`);
+      await api.post(`/api/admin/approve-user/${userId}`, overrides ?? {});
       setPendingUsers(prev => prev.filter(u => u.id !== userId));
-      setAllUsers(prev => prev.map(u => u.id === userId ? { ...u, is_approved: true } : u));
+      setAllUsers(prev => prev.map(u => u.id === userId
+        ? { ...u, is_approved: true, ...(overrides ?? {}), department: overrides?.departments[0] ?? u.department }
+        : u));
+      if (overrides) setEditApproveUser(null);
     } catch { }
     setLoading(l => ({ ...l, [userId]: false }));
   };
+
+  const openEditApprove = (u: User) => {
+    setEditApproveForm({
+      role: u.role,
+      departments: (u as any).departments?.length ? (u as any).departments : (u.department ? [u.department] : []),
+    });
+    setEditApproveUser(u);
+  };
+
+  const toggleEditDept = (d: string) =>
+    setEditApproveForm(f => ({
+      ...f,
+      departments: f.departments.includes(d) ? f.departments.filter(x => x !== d) : [...f.departments, d],
+    }));
 
   const rejectUser = async (userId: string) => {
     if (!confirm('Reject this user? They will be deactivated.')) return;
@@ -323,9 +346,15 @@ export default function AdminPage() {
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">{formatDateTime(u.created_at)}</p>
                     </div>
-                    <div className="flex gap-2 shrink-0">
-                      <Button size="sm" className="bg-green-600 hover:bg-green-500" disabled={loading[u.id]}
-                        onClick={() => approveUser(u.id)}>Approve</Button>
+                    <div className="flex gap-2 shrink-0 flex-wrap justify-end">
+                      <Button size="sm" className="bg-green-600 hover:bg-green-500 gap-1.5" disabled={loading[u.id]}
+                        onClick={() => approveUser(u.id)}>
+                        <UserCheck className="w-3 h-3" />Approve
+                      </Button>
+                      <Button size="sm" variant="outline" className="gap-1.5 border-blue-500/30 text-blue-300 hover:bg-blue-600/10"
+                        disabled={loading[u.id]} onClick={() => openEditApprove(u)}>
+                        <Pencil className="w-3 h-3" />Edit &amp; Approve
+                      </Button>
                       <Button size="sm" variant="destructive" disabled={loading[u.id]}
                         onClick={() => rejectUser(u.id)}>Reject</Button>
                     </div>
@@ -768,6 +797,61 @@ export default function AdminPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Edit & Approve dialog */}
+      {editApproveUser && (
+        <Dialog open onOpenChange={() => setEditApproveUser(null)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Edit &amp; Approve</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <p className="text-sm font-medium text-white">{editApproveUser.full_name}</p>
+                <p className="text-xs text-muted-foreground">{editApproveUser.email}</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Role</Label>
+                <Select value={editApproveForm.role} onValueChange={v => setEditApproveForm(f => ({ ...f, role: v as User['role'] }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">User</SelectItem>
+                    <SelectItem value="manager">Manager</SelectItem>
+                    <SelectItem value="administrator">Administrator</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Departments</Label>
+                <div className="grid grid-cols-2 gap-1.5 p-3 rounded-lg border border-white/10 bg-white/5 max-h-40 overflow-y-auto">
+                  {adminDepts.map(d => (
+                    <label key={d} className="flex items-center gap-2 cursor-pointer group">
+                      <Checkbox
+                        checked={editApproveForm.departments.includes(d)}
+                        onCheckedChange={() => toggleEditDept(d)}
+                      />
+                      <span className="text-xs text-white">{d}</span>
+                    </label>
+                  ))}
+                </div>
+                {editApproveForm.departments.length === 0 && (
+                  <p className="text-xs text-red-400">Select at least one department</p>
+                )}
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="ghost" onClick={() => setEditApproveUser(null)}>Cancel</Button>
+              <Button
+                className="bg-green-600 hover:bg-green-500"
+                disabled={editApproveForm.departments.length === 0 || loading[editApproveUser.id]}
+                onClick={() => approveUser(editApproveUser.id, editApproveForm)}
+              >
+                Approve with Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

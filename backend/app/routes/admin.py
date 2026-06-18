@@ -118,7 +118,16 @@ def approve_user(user_id):
     if not res:
         return jsonify({"error": "User not found"}), 404
 
-    supabase.table("users").update({"is_approved": True}).eq("id", user_id).execute()
+    data = request.json or {}
+    update = {"is_approved": True}
+    # Allow admin to override role and departments before approving
+    if data.get("role") in ("user", "manager", "administrator"):
+        update["role"] = data["role"]
+    if isinstance(data.get("departments"), list) and data["departments"]:
+        update["departments"] = data["departments"]
+        update["department"] = data["departments"][0]
+
+    supabase.table("users").update(update).eq("id", user_id).execute()
 
     create_notification(
         user_id, "approval_status",

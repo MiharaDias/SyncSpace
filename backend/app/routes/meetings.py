@@ -7,7 +7,7 @@ from app.services.recurring import generate_recurring_instances
 from app.services.notifications import create_notification
 from app.services.google_calendar import create_google_event, update_google_event, cancel_google_event
 from app.routes.google_oauth import create_event_for_user
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dateutil import parser as dateparser
 
 meetings_bp = Blueprint("meetings", __name__)
@@ -88,6 +88,11 @@ def create_meeting():
         return jsonify({"error": "Too many attendees (max 100)"}), 400
 
     start = dateparser.parse(data["start_time"])
+
+    # Reject meetings scheduled in the past (IST = UTC+5:30, but backend compares in UTC)
+    start_aware = start if start.tzinfo else start.replace(tzinfo=timezone.utc)
+    if start_aware < datetime.now(timezone.utc):
+        return jsonify({"error": "Cannot schedule meetings in the past"}), 400
 
     # duration_minutes is optional when end_time is explicitly provided.
     # If both are absent, default to 60 minutes.
@@ -417,13 +422,24 @@ def update_meeting(meeting_id):
     updated = result.data[0]
 
     att_res = supabase.table("meeting_attendees").select("user_id").eq("meeting_id", meeting_id).execute()
+
+    # If start time changed, reset all attendees' responses and notify of rescheduling
+    time_changed = "start_time" in update_data
+    if time_changed:
+        supabase.table("meeting_attendees").update({"response_status": "pending"}).eq(
+            "meeting_id", meeting_id).neq("user_id", user_id).execute()
+
     for att in att_res.data:
         if att["user_id"] != user_id:
+            msg = (
+                f"'{updated.get('title', meeting['title'])}' has been rescheduled. Please respond again."
+                if time_changed
+                else f"The meeting '{updated.get('title', meeting['title'])}' has been updated."
+            )
             create_notification(
                 att["user_id"], "meeting_update",
-                "Meeting Updated",
-                f"The meeting '{updated.get('title', meeting['title'])}' has been updated.",
-                meeting_id, "meeting"
+                "Meeting Rescheduled" if time_changed else "Meeting Updated",
+                msg, meeting_id, "meeting"
             )
 
     if meeting.get("google_event_id"):
@@ -545,6 +561,28 @@ def update_attendees(meeting_id):
     for uid in move_to_optional:
         supabase.table("meeting_attendees").update({"attendance_type": "optional"}).eq(
             "meeting_id", meeting_id).eq("user_id", uid).execute()
+
+    # Add new required attendees
+    for uid in data.get("add_required", []):
+        existing = supabase.table("meeting_attendees").select("id").eq(
+            "meeting_id", meeting_id).eq("user_id", uid).execute()
+        if not existing.data:
+            supabase.table("meeting_attendees").insert({
+                "meeting_id": meeting_id, "user_id": uid,
+                "attendance_type": "required", "response_status": "pending"
+            }).execute()
+            _notify_attendee(uid, {"id": meeting_id, "title": mtg["title"]}, "required")
+
+    # Add new optional attendees
+    for uid in data.get("add_optional", []):
+        existing = supabase.table("meeting_attendees").select("id").eq(
+            "meeting_id", meeting_id).eq("user_id", uid).execute()
+        if not existing.data:
+            supabase.table("meeting_attendees").insert({
+                "meeting_id": meeting_id, "user_id": uid,
+                "attendance_type": "optional", "response_status": "pending"
+            }).execute()
+            _notify_attendee(uid, {"id": meeting_id, "title": mtg["title"]}, "optional")
 
     return jsonify({"message": "Attendees updated"})
 

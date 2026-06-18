@@ -83,6 +83,11 @@ export default function NewMeetingDialog({ open, initialTime, initialRequiredAtt
   const checkAvailability = async () => {
     if (!form.title) { setError('Meeting title is required'); return; }
     if (!form.start_time) { setError('Start time is required'); return; }
+    // IST validation — datetime-local is interpreted as local time (IST for this app)
+    if (new Date(form.start_time) <= new Date()) {
+      setError('Cannot schedule meetings in the past (IST)');
+      return;
+    }
     setError('');
     setChecking(true);
     try {

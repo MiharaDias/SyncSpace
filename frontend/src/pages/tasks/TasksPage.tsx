@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, ChevronRight, ListChecks, Calendar, Flag, CheckCircle2, Clock } from 'lucide-react';
+import { Plus, ChevronRight, ListChecks, Calendar, Flag, CheckCircle2, Clock, LayoutGrid, List } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { Card, CardContent } from '../../components/ui/card';
@@ -97,6 +97,11 @@ export default function TasksPage() {
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
+  const [dragging, setDragging] = useState<Task | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  const [pendingMove, setPendingMove] = useState<{ task: Task; newStatus: string } | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const fetchTasks = async () => {
     const params = new URLSearchParams();
@@ -117,6 +122,38 @@ export default function TasksPage() {
   const filteredTasks = tasks.filter(t =>
     !search || t.title.toLowerCase().includes(search.toLowerCase())
   );
+
+  const confirmMove = async () => {
+    if (!pendingMove) return;
+    setConfirming(true);
+    try {
+      await api.put(`/api/tasks/${pendingMove.task.id}`, { status: pendingMove.newStatus });
+      invalidateTasksCache();
+      await fetchTasks();
+    } catch { }
+    setConfirming(false);
+    setPendingMove(null);
+  };
+
+  // Board columns: standard order + any custom statuses found in tasks
+  const STANDARD_STATUSES = ['not started', 'to do', 'in progress', 'on hold', 'done', 'completed', 'cancelled'];
+  const taskStatuses = Array.from(new Set(filteredTasks.map(t => t.status?.toLowerCase() || 'not started')));
+  const boardStatuses = [
+    ...STANDARD_STATUSES.filter(s => taskStatuses.includes(s)),
+    ...taskStatuses.filter(s => !STANDARD_STATUSES.includes(s)),
+  ];
+  if (boardStatuses.length === 0) boardStatuses.push('not started', 'in progress', 'done');
+
+  const statusLabel = (s: string) => s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
+  const columnColor = (s: string) => {
+    const l = s.toLowerCase();
+    if (l.includes('complet') || l === 'done') return 'border-green-500/40';
+    if (l.includes('progress')) return 'border-blue-500/40';
+    if (l.includes('hold')) return 'border-yellow-500/40';
+    if (l.includes('cancel')) return 'border-red-500/40';
+    return 'border-white/10';
+  };
 
   // Group by project for better UX
   const tasksByProject: Record<string, Task[]> = {};
@@ -139,6 +176,20 @@ export default function TasksPage() {
           <p className="text-sm text-muted-foreground">{filteredTasks.length} tasks across {projects.length} projects</p>
         </div>
         <div className="flex gap-2">
+          <div className="flex border border-white/10 rounded-lg overflow-hidden">
+            <button
+              onClick={() => setViewMode('list')}
+              className={`px-3 py-1.5 text-sm flex items-center gap-1.5 transition-colors ${viewMode === 'list' ? 'bg-white/10 text-white' : 'text-muted-foreground hover:text-white'}`}
+            >
+              <List className="w-4 h-4" />List
+            </button>
+            <button
+              onClick={() => setViewMode('board')}
+              className={`px-3 py-1.5 text-sm flex items-center gap-1.5 transition-colors ${viewMode === 'board' ? 'bg-white/10 text-white' : 'text-muted-foreground hover:text-white'}`}
+            >
+              <LayoutGrid className="w-4 h-4" />Board
+            </button>
+          </div>
           <Link to="/projects">
             <Button variant="outline" size="sm" className="gap-2">
               View Projects
@@ -196,56 +247,110 @@ export default function TasksPage() {
         </Select>
       </div>
 
-      {/* Task list grouped by project */}
-      {filteredTasks.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground">
-          <ListChecks className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="text-sm">No tasks found</p>
-          <Button size="sm" className="mt-4" onClick={() => setShowCreate(true)}>
-            <Plus className="w-4 h-4 mr-1" />Create Task
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {/* Grouped by project */}
-          {Object.entries(tasksByProject).map(([projectId, ptasks]) => {
-            const project = projects.find(p => p.id === projectId) || ptasks[0]?.project;
-            const done = ptasks.filter(t => ['completed','done'].includes(t.status?.toLowerCase())).length;
-            return (
-              <div key={projectId}>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Link to={`/projects/${projectId}`} className="text-sm font-semibold text-white hover:text-blue-300 transition-colors">
-                      {project?.name || 'Unknown Project'}
-                    </Link>
-                    <Badge variant="secondary" className="text-xs">{ptasks.length}</Badge>
+      {/* Board view */}
+      {viewMode === 'board' && (
+        filteredTasks.length === 0 ? (
+          <div className="text-center py-16 text-muted-foreground">
+            <ListChecks className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p className="text-sm">No tasks found</p>
+            <Button size="sm" className="mt-4" onClick={() => setShowCreate(true)}>
+              <Plus className="w-4 h-4 mr-1" />Create Task
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-4 overflow-x-auto pb-4">
+            {boardStatuses.map(status => {
+              const colTasks = filteredTasks.filter(t => (t.status?.toLowerCase() || 'not started') === status);
+              const isOver = dragOver === status;
+              return (
+                <div
+                  key={status}
+                  className={`flex-shrink-0 w-72 rounded-xl border bg-white/3 transition-colors ${columnColor(status)} ${isOver ? 'bg-white/8 ring-1 ring-blue-500/40' : ''}`}
+                  onDragOver={e => { e.preventDefault(); setDragOver(status); }}
+                  onDragLeave={() => setDragOver(null)}
+                  onDrop={e => {
+                    e.preventDefault();
+                    setDragOver(null);
+                    if (dragging && (dragging.status?.toLowerCase() || 'not started') !== status) {
+                      setPendingMove({ task: dragging, newStatus: status });
+                    }
+                    setDragging(null);
+                  }}
+                >
+                  <div className="px-3 py-2.5 border-b border-white/10 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-white">{statusLabel(status)}</span>
+                    <Badge variant="secondary" className="text-xs">{colTasks.length}</Badge>
                   </div>
-                  <MiniProgress done={done} total={ptasks.length} />
+                  <div className="p-2 space-y-2 min-h-[80px]">
+                    {colTasks.map(task => (
+                      <div
+                        key={task.id}
+                        draggable
+                        onDragStart={() => setDragging(task)}
+                        onDragEnd={() => { setDragging(null); setDragOver(null); }}
+                        className={`cursor-grab active:cursor-grabbing transition-opacity ${dragging?.id === task.id ? 'opacity-40' : ''}`}
+                      >
+                        <TaskCard task={task} onClick={() => setSelectedTask(task)} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {/* List view grouped by project */}
+      {viewMode === 'list' && (
+        filteredTasks.length === 0 ? (
+          <div className="text-center py-16 text-muted-foreground">
+            <ListChecks className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p className="text-sm">No tasks found</p>
+            <Button size="sm" className="mt-4" onClick={() => setShowCreate(true)}>
+              <Plus className="w-4 h-4 mr-1" />Create Task
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {Object.entries(tasksByProject).map(([projectId, ptasks]) => {
+              const project = projects.find(p => p.id === projectId) || ptasks[0]?.project;
+              const done = ptasks.filter(t => ['completed','done'].includes(t.status?.toLowerCase())).length;
+              return (
+                <div key={projectId}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Link to={`/projects/${projectId}`} className="text-sm font-semibold text-white hover:text-blue-300 transition-colors">
+                        {project?.name || 'Unknown Project'}
+                      </Link>
+                      <Badge variant="secondary" className="text-xs">{ptasks.length}</Badge>
+                    </div>
+                    <MiniProgress done={done} total={ptasks.length} />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                    {ptasks.map(task => (
+                      <TaskCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+
+            {noProjectTasks.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <p className="text-sm font-semibold text-muted-foreground">General Tasks</p>
+                  <Badge variant="secondary" className="text-xs">{noProjectTasks.length}</Badge>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                  {ptasks.map(task => (
+                  {noProjectTasks.map(task => (
                     <TaskCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />
                   ))}
                 </div>
               </div>
-            );
-          })}
-
-          {/* Tasks without project */}
-          {noProjectTasks.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <p className="text-sm font-semibold text-muted-foreground">General Tasks</p>
-                <Badge variant="secondary" className="text-xs">{noProjectTasks.length}</Badge>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {noProjectTasks.map(task => (
-                  <TaskCard key={task.id} task={task} onClick={() => setSelectedTask(task)} />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )
       )}
 
       {/* Dialogs */}
@@ -263,6 +368,27 @@ export default function TasksPage() {
           onUpdate={() => { setSelectedTask(null); invalidateTasksCache(); fetchTasks(); }}
         />
       )}
+
+      {/* Drag & drop confirmation */}
+      <Dialog open={!!pendingMove} onOpenChange={open => { if (!open) setPendingMove(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Move Task</DialogTitle>
+          </DialogHeader>
+          {pendingMove && (
+            <p className="text-sm text-muted-foreground">
+              Move <span className="text-white font-medium">"{pendingMove.task.title}"</span> to{' '}
+              <span className="text-white font-medium">{statusLabel(pendingMove.newStatus)}</span>?
+            </p>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPendingMove(null)}>Cancel</Button>
+            <Button size="sm" onClick={confirmMove} disabled={confirming}>
+              {confirming ? 'Moving…' : 'Confirm'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
