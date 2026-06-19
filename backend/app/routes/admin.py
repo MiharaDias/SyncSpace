@@ -169,26 +169,100 @@ def get_user_detail(user_id):
     if not user:
         return jsonify({"error": "User not found"}), 404
 
+    # All tasks assigned to user (stats + list)
     all_tasks = supabase.table("tasks").select(
-        "id,status,completed_at,time_spent_minutes"
-    ).or_(f"assigned_to.eq.{user_id},created_by.eq.{user_id}").execute().data or []
+        "id,title,status,priority,due_date,completed_at,time_spent_minutes,project:project_id(id,name)"
+    ).eq("assigned_to", user_id).order("created_at", desc=True).execute().data or []
     completed = [t for t in all_tasks if t.get("completed_at")]
+    now_str = __import__("datetime").date.today().isoformat()
+    overdue = [t for t in all_tasks if t.get("due_date") and t.get("due_date", "")[:10] < now_str
+               and t.get("status", "").lower() not in ("completed", "done", "cancelled")]
 
+    # Projects user is a member of
+    user_projects = []
+    try:
+        pm_res = supabase.table("project_members").select(
+            "role, project:project_id(id,name,status,progress,total_tasks,completed_tasks)"
+        ).eq("user_id", user_id).execute().data or []
+        user_projects = [
+            {**pm["project"], "member_role": pm["role"]}
+            for pm in pm_res if pm.get("project")
+        ]
+    except Exception:
+        pass
+
+    # Audit log unique to this user (all entries)
     audit_log = []
     try:
         audit_log = supabase.table("task_audit_log").select(
             "*, task:task_id(title)"
-        ).eq("user_id", user_id).order("created_at", desc=True).limit(25).execute().data or []
+        ).eq("user_id", user_id).order("created_at", desc=True).limit(100).execute().data or []
     except Exception:
         pass
 
     user["task_stats"] = {
         "total": len(all_tasks),
         "completed": len(completed),
+        "overdue": len(overdue),
         "total_hours": round(sum(t.get("time_spent_minutes") or 0 for t in completed) / 60, 1),
     }
-    user["recent_audit"] = audit_log
+    user["assigned_tasks"] = all_tasks[:30]
+    user["projects"] = user_projects
+    user["audit_log"] = audit_log
     return jsonify(user)
+
+
+@admin_bp.route("/users/<user_id>", methods=["PUT"])
+@jwt_required()
+@require_roles("administrator")
+def update_user(user_id):
+    caller_id = get_jwt_identity()
+    data = request.json or {}
+    update: dict = {}
+
+    if "role" in data:
+        if data["role"] not in ("user", "manager", "administrator"):
+            return jsonify({"error": "Invalid role"}), 400
+        update["role"] = data["role"]
+
+    if "departments" in data:
+        depts = data["departments"]
+        if not isinstance(depts, list):
+            return jsonify({"error": "departments must be a list"}), 400
+        update["departments"] = depts
+        update["department"] = depts[0] if depts else ""
+
+    if "is_active" in data:
+        if not isinstance(data["is_active"], bool):
+            return jsonify({"error": "is_active must be a boolean"}), 400
+        if not data["is_active"] and caller_id == user_id:
+            return jsonify({"error": "Cannot deactivate your own account"}), 400
+        update["is_active"] = data["is_active"]
+
+    if not update:
+        return jsonify({"error": "Nothing to update"}), 400
+
+    supabase.table("users").update(update).eq("id", user_id).execute()
+
+    # Log admin action in task_audit_log as a user-level audit entry
+    try:
+        changes = []
+        if "role" in update:
+            changes.append(f"role → {update['role']}")
+        if "departments" in update:
+            changes.append(f"departments → {', '.join(update['departments'])}")
+        if "is_active" in update:
+            changes.append("deactivated" if not update["is_active"] else "activated")
+        supabase.table("task_audit_log").insert({
+            "user_id": user_id,
+            "action": "admin_updated",
+            "new_value": "; ".join(changes),
+            "old_value": f"by admin {caller_id[:8]}",
+        }).execute()
+    except Exception:
+        pass
+
+    return jsonify({"message": "User updated"})
 
 
 @admin_bp.route("/users/<user_id>/role", methods=["PUT"])

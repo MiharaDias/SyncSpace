@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Calendar, Clock, CheckSquare, Bell, Plus, FolderKanban, BarChart3, Building2 } from 'lucide-react';
+import { Calendar, Clock, CheckSquare, Bell, Plus, FolderKanban, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -34,7 +34,7 @@ function CircleProgress({ value, size = 56, stroke = 5, color = '#3b82f6' }: {
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { user, currentDepartment, setCurrentDepartment } = useAuthStore();
+  const { user, currentDepartment } = useAuthStore();
   const [todayMeetings, setTodayMeetings] = useState<Meeting[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [taskStats, setTaskStats] = useState<any>(null);
@@ -42,14 +42,7 @@ export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [overview, setOverview] = useState<any>(null);
   const [heatmapData, setHeatmapData] = useState<{ date: string; count: number; minutes: number }[]>([]);
-  // Build the department options for this user
-  const userDepts: string[] = user?.departments?.length
-    ? user.departments
-    : user?.department ? [user.department] : [];
-  const deptOptions: string[] = [];
-  if (user?.role === 'administrator' || userDepts.length > 1) deptOptions.push('all');
-  deptOptions.push(...userDepts);
-  const canSwitch = deptOptions.length > 1;
+  const [monthsBack, setMonthsBack] = useState(0);
 
   useEffect(() => {
     const today = new Date();
@@ -78,13 +71,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user?.id) return;
-    const today = new Date();
-    const currentYear = today.getFullYear();
-    const needPrevYear = today.getMonth() <= 1;
-    const reqs = [api.get(`/api/tasks/heatmap?user_id=${user.id}&year=${currentYear}`)];
-    if (needPrevYear) reqs.push(api.get(`/api/tasks/heatmap?user_id=${user.id}&year=${currentYear - 1}`));
-    Promise.all(reqs.map(r => r.catch(() => ({ data: [] }))))
-      .then(results => setHeatmapData([...results[0].data, ...(results[1]?.data || [])]));
+    const currentYear = new Date().getFullYear();
+    Promise.all([
+      api.get(`/api/tasks/heatmap?user_id=${user.id}&year=${currentYear}`).catch(() => ({ data: [] })),
+      api.get(`/api/tasks/heatmap?user_id=${user.id}&year=${currentYear - 1}`).catch(() => ({ data: [] })),
+    ]).then(([cur, prev]) => setHeatmapData([...(cur as any).data, ...(prev as any).data]));
   }, [user?.id]);
 
   const greeting = () => {
@@ -102,46 +93,11 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div className="space-y-2">
-          <div>
-            <h2 className="text-2xl font-bold text-white">{greeting()}, {user?.full_name.split(' ')[0]}!</h2>
-            <p className="text-muted-foreground text-sm mt-0.5">{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
-          </div>
-
-          {/* ── Department context ──────────────────────────────────────── */}
-          {userDepts.length > 0 && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Building2 className="w-3.5 h-3.5" />
-                <span>Viewing:</span>
-              </div>
-
-              {canSwitch ? (
-                /* Multi-dept: clickable chips */
-                deptOptions.map(d => (
-                  <button
-                    key={d}
-                    onClick={() => setCurrentDepartment(d)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-                      currentDepartment === d
-                        ? 'bg-blue-600 border-blue-500 text-white shadow-sm shadow-blue-500/30'
-                        : 'border-white/10 text-muted-foreground hover:border-blue-500/40 hover:text-white bg-white/5'
-                    }`}
-                  >
-                    {d === 'all' ? 'All Departments' : d}
-                  </button>
-                ))
-              ) : (
-                /* Single-dept: static badge */
-                <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-600/20 border border-blue-500/30 text-blue-200">
-                  {currentDepartment === 'all' ? 'All Departments' : currentDepartment}
-                </span>
-              )}
-            </div>
-          )}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-white">{greeting()}, {user?.full_name.split(' ')[0]}!</h2>
+          <p className="text-muted-foreground text-sm mt-0.5">{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
         </div>
-
         <Link to="/meetings">
           <Button size="sm" className="gap-2">
             <Plus className="w-4 h-4" />New Meeting
@@ -185,24 +141,50 @@ export default function Dashboard() {
       <div className="w-fit">
         <Card className="border-white/10">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <CheckSquare className="w-4 h-4 text-blue-400" />Task Activity — Last 3 Months
-            </CardTitle>
-            {user?.id && (() => {
-              const cutoff = new Date();
-              cutoff.setMonth(cutoff.getMonth() - 2);
-              cutoff.setDate(1);
-              const cutoffStr = cutoff.toISOString().slice(0, 10);
-              const vis = heatmapData.filter(d => d.date >= cutoffStr);
-              return (
-                <p className="text-xs text-muted-foreground">
-                  Your completions · {vis.reduce((a, d) => a + d.count, 0)} tasks · {Math.round(vis.reduce((a, d) => a + d.minutes, 0) / 60 * 10) / 10}h · {vis.filter(d => d.count > 0).length} active days
-                </p>
-              );
-            })()}
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="space-y-0.5">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <CheckSquare className="w-4 h-4 text-blue-400" />Task Activity
+                </CardTitle>
+                {user?.id && (() => {
+                  const today = new Date();
+                  const refStart = new Date(today.getFullYear(), today.getMonth() - monthsBack - 2, 1);
+                  const refEnd = new Date(today.getFullYear(), today.getMonth() - monthsBack + 1, 0);
+                  const startStr = refStart.toISOString().slice(0, 10);
+                  const endStr = refEnd.toISOString().slice(0, 10);
+                  const vis = heatmapData.filter(d => d.date >= startStr && d.date <= endStr);
+                  return (
+                    <p className="text-xs text-muted-foreground">
+                      {vis.reduce((a, d) => a + d.count, 0)} tasks · {Math.round(vis.reduce((a, d) => a + d.minutes, 0) / 60 * 10) / 10}h · {vis.filter(d => d.count > 0).length} active days
+                    </p>
+                  );
+                })()}
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setMonthsBack(b => b + 3)}
+                  disabled={monthsBack >= 12}
+                  className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-muted-foreground hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="View earlier months"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-muted-foreground min-w-[80px] text-center">
+                  {monthsBack === 0 ? 'Last 3 months' : `${monthsBack + 3}–${monthsBack + 1} months ago`}
+                </span>
+                <button
+                  onClick={() => setMonthsBack(b => Math.max(0, b - 3))}
+                  disabled={monthsBack === 0}
+                  className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-muted-foreground hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="View more recent months"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            <TaskHeatmap data={heatmapData} />
+            <TaskHeatmap data={heatmapData} monthsBack={monthsBack} />
           </CardContent>
         </Card>
       </div>
@@ -438,8 +420,9 @@ function MeetingRow({ meeting, showDate }: { meeting: Meeting; showDate?: boolea
 const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const LEVEL_COLORS = ['bg-white/5', 'bg-blue-950', 'bg-blue-800', 'bg-blue-600', 'bg-blue-400'];
 
-function TaskHeatmap({ data }: {
+function TaskHeatmap({ data, monthsBack = 0 }: {
   data: { date: string; count: number; minutes: number }[];
+  monthsBack?: number;
 }) {
   const map = Object.fromEntries(data.map(d => [d.date, d]));
   const today = new Date();
@@ -461,8 +444,8 @@ function TaskHeatmap({ data }: {
     return `${dateStr}: ${d.count} task${d.count !== 1 ? 's' : ''} · ${Math.round(d.minutes / 60 * 10) / 10}h`;
   };
 
-  // Last 3 months: 2 months ago (left) → 1 month ago → current month (right)
-  const months = [2, 1, 0].map(offset => {
+  // Render 3 months starting at monthsBack offset (oldest left → newest right)
+  const months = [monthsBack + 2, monthsBack + 1, monthsBack].map(offset => {
     const ref = new Date(today.getFullYear(), today.getMonth() - offset, 1);
     const mi = ref.getMonth();
     const yr = ref.getFullYear();

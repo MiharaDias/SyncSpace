@@ -1,5 +1,5 @@
 import { Bell, ChevronDown, Check, Building2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import api from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
@@ -11,13 +11,14 @@ export function TopBar({ title }: { title: string }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [deptOpen, setDeptOpen] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
+  const location = useLocation();
 
   useEffect(() => {
     if (!user) return;
     api.get('/api/notifications/unread-count')
       .then(r => setUnreadCount(r.data.count))
       .catch(() => {});
-  }, [user]);
+  }, [user, location.pathname]);
 
   // Admins need the full department list from the store
   useEffect(() => {
