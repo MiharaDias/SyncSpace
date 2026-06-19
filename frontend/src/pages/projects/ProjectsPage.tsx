@@ -180,12 +180,18 @@ function TaskQuickDialog({ task, statuses, onClose, onUpdate }: {
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmSaving, setConfirmSaving] = useState(false);
+  const [timeH, setTimeH] = useState(0);
+  const [timeM, setTimeM] = useState(0);
 
   const canEditTask = user?.role === 'administrator'
     || task.created_by === user?.id
     || user?.role === 'manager';
 
   const opts = statuses.length ? statuses.map(s => s.name) : ['Not Started','In Progress','Completed','On Hold','Cancelled'];
+  const isCompletionStatus = (s: string) => ['completed', 'done'].includes(s.toLowerCase());
+  const statusChanged = status !== (task.status || 'Not Started');
 
   useEffect(() => {
     api.get(`/api/tasks/${task.id}/comments`).then(r => setComments(r.data)).catch(() => {});
@@ -195,11 +201,21 @@ function TaskQuickDialog({ task, statuses, onClose, onUpdate }: {
     if (editing) api.get('/api/users').then(r => setAllUsers(r.data)).catch(() => {});
   }, [editing]);
 
-  const saveStatus = async (v: string) => {
-    setStatus(v);
-    setEditForm(f => ({ ...f, status: v }));
-    await api.put(`/api/tasks/${task.id}`, { status: v }).catch(() => {});
-    onUpdate();
+  const openSaveConfirm = () => { setTimeH(0); setTimeM(0); setShowConfirm(true); };
+
+  const handleStatusSave = async () => {
+    setConfirmSaving(true);
+    try {
+      const payload: Record<string, any> = { status };
+      if (isCompletionStatus(status)) {
+        const minutes = timeH * 60 + timeM;
+        if (minutes > 0) payload.time_spent_minutes = minutes;
+      }
+      await api.put(`/api/tasks/${task.id}`, payload);
+      setShowConfirm(false);
+      onUpdate();
+    } catch {}
+    setConfirmSaving(false);
   };
 
   const saveEdit = async () => {
@@ -240,6 +256,7 @@ function TaskQuickDialog({ task, statuses, onClose, onUpdate }: {
   };
 
   return (
+    <>
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
@@ -319,12 +336,17 @@ function TaskQuickDialog({ task, statuses, onClose, onUpdate }: {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Status</p>
-                  <Select value={status} onValueChange={saveStatus}>
-                    <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {opts.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-2">
+                    <Select value={status} onValueChange={setStatus}>
+                      <SelectTrigger className="h-8 flex-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {opts.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {statusChanged && (
+                      <Button size="sm" className="h-8 shrink-0 px-3" onClick={openSaveConfirm}>Save</Button>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Priority</p>
@@ -366,6 +388,42 @@ function TaskQuickDialog({ task, statuses, onClose, onUpdate }: {
         {!editing && <DialogFooter><Button variant="ghost" size="sm" onClick={onClose}>Close</Button></DialogFooter>}
       </DialogContent>
     </Dialog>
+    <Dialog open={showConfirm} onOpenChange={open => { if (!open) setShowConfirm(false); }}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{isCompletionStatus(status) ? 'Complete Task' : 'Change Status'}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Change status to <span className="text-white font-medium">"{status}"</span>?
+          </p>
+          {isCompletionStatus(status) && (
+            <div className="space-y-2 pt-1 border-t border-white/10">
+              <p className="text-xs text-muted-foreground">How long did this task take? (optional)</p>
+              <div className="flex gap-3">
+                <div className="flex-1 space-y-1">
+                  <Label className="text-xs">Hours</Label>
+                  <Input type="number" min={0} max={999} value={timeH}
+                    onChange={e => setTimeH(Math.max(0, +e.target.value))} className="h-8" />
+                </div>
+                <div className="flex-1 space-y-1">
+                  <Label className="text-xs">Minutes</Label>
+                  <Input type="number" min={0} max={59} value={timeM}
+                    onChange={e => setTimeM(Math.max(0, Math.min(59, +e.target.value)))} className="h-8" />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowConfirm(false)}>Cancel</Button>
+          <Button size="sm" onClick={handleStatusSave} disabled={confirmSaving}>
+            {confirmSaving ? 'Saving…' : 'Confirm'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

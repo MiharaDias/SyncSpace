@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Calendar, Clock, CheckSquare, Bell, Plus, FolderKanban, BarChart3, Building2, Search } from 'lucide-react';
+import { Calendar, Clock, CheckSquare, Bell, Plus, FolderKanban, BarChart3, Building2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import { Input } from '../components/ui/input';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { formatDate, formatTime, minutesToDuration } from '../lib/utils';
@@ -43,11 +42,6 @@ export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [overview, setOverview] = useState<any>(null);
   const [heatmapData, setHeatmapData] = useState<{ date: string; count: number; minutes: number }[]>([]);
-  const [heatmapUserId, setHeatmapUserId] = useState('');
-  const [heatmapUserName, setHeatmapUserName] = useState('');
-  const [userSearch, setUserSearch] = useState('');
-  const [userResults, setUserResults] = useState<{ id: string; full_name: string }[]>([]);
-  const userSearchRef = useRef<HTMLInputElement>(null);
   // Build the department options for this user
   const userDepts: string[] = user?.departments?.length
     ? user.departments
@@ -83,29 +77,15 @@ export default function Dashboard() {
   }, [currentDepartment]);
 
   useEffect(() => {
-    if (user && !heatmapUserId) {
-      setHeatmapUserId(user.id);
-      setHeatmapUserName(user.full_name);
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (!heatmapUserId) return;
+    if (!user?.id) return;
     const today = new Date();
     const currentYear = today.getFullYear();
-    const needPrevYear = today.getMonth() <= 1; // Jan or Feb spans previous year
-    const reqs = [api.get(`/api/tasks/heatmap?user_id=${heatmapUserId}&year=${currentYear}`)];
-    if (needPrevYear) reqs.push(api.get(`/api/tasks/heatmap?user_id=${heatmapUserId}&year=${currentYear - 1}`));
+    const needPrevYear = today.getMonth() <= 1;
+    const reqs = [api.get(`/api/tasks/heatmap?user_id=${user.id}&year=${currentYear}`)];
+    if (needPrevYear) reqs.push(api.get(`/api/tasks/heatmap?user_id=${user.id}&year=${currentYear - 1}`));
     Promise.all(reqs.map(r => r.catch(() => ({ data: [] }))))
       .then(results => setHeatmapData([...results[0].data, ...(results[1]?.data || [])]));
-  }, [heatmapUserId]);
-
-  useEffect(() => {
-    if (!userSearch.trim() || user?.role !== 'administrator') { setUserResults([]); return; }
-    api.get(`/api/users?search=${encodeURIComponent(userSearch)}`)
-      .then(r => setUserResults((r.data as any[]).slice(0, 6)))
-      .catch(() => {});
-  }, [userSearch]);
+  }, [user?.id]);
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -177,95 +157,60 @@ export default function Dashboard() {
         <StatCard icon={<FolderKanban className="w-5 h-5 text-purple-400" />} label="Active Projects" value={overview?.active_projects ?? 0} color="purple" />
       </div>
 
-      {/* Task Activity Heatmap */}
-      <Card className="border-white/10">
+      {/* Today's Schedule */}
+      <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="space-y-1">
-              <CardTitle className="text-base flex items-center gap-2">
-                <CheckSquare className="w-4 h-4 text-blue-400" />Task Activity — Last 3 Months
-              </CardTitle>
-              {heatmapUserId && (() => {
-                const cutoff = new Date();
-                cutoff.setMonth(cutoff.getMonth() - 2);
-                cutoff.setDate(1);
-                const cutoffStr = cutoff.toISOString().slice(0, 10);
-                const vis = heatmapData.filter(d => d.date >= cutoffStr);
-                return (
-                  <p className="text-xs text-muted-foreground">
-                    {heatmapUserId === user?.id ? 'Your completions' : heatmapUserName}
-                    {' · '}{vis.reduce((a, d) => a + d.count, 0)} tasks · {' '}
-                    {Math.round(vis.reduce((a, d) => a + d.minutes, 0) / 60 * 10) / 10}h · {' '}
-                    {vis.filter(d => d.count > 0).length} active days
-                  </p>
-                );
-              })()}
-            </div>
-            <div className="flex items-center gap-3">
-              {user?.role === 'administrator' && (
-                <div className="relative">
-                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
-                  <Input
-                    ref={userSearchRef}
-                    placeholder="View another user…"
-                    value={userSearch}
-                    onChange={e => setUserSearch(e.target.value)}
-                    className="pl-6 h-7 text-xs w-44"
-                  />
-                  {userResults.length > 0 && (
-                    <div className="absolute top-8 left-0 z-50 w-56 rounded-lg border border-white/10 bg-gray-900 shadow-xl">
-                      {userResults.map(u => (
-                        <button key={u.id} className="w-full text-left px-3 py-2 text-xs hover:bg-white/5 text-white"
-                          onClick={() => { setHeatmapUserId(u.id); setHeatmapUserName(u.full_name); setUserSearch(''); setUserResults([]); }}>
-                          {u.full_name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {heatmapUserId !== user?.id && (
-                <button className="text-xs text-blue-400 hover:text-blue-300"
-                  onClick={() => { setHeatmapUserId(user?.id || ''); setHeatmapUserName(user?.full_name || ''); }}>
-                  Back to mine
-                </button>
-              )}
-            </div>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-blue-400" />Today's Schedule
+            </CardTitle>
+            <Link to="/calendar" className="text-xs text-blue-400 hover:text-blue-300">View calendar →</Link>
           </div>
         </CardHeader>
         <CardContent>
-          <TaskHeatmap data={heatmapData} />
+          {todayMeetings.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Calendar className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No meetings today</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {todayMeetings.map(m => <MeetingRow key={m.id} meeting={m} />)}
+            </div>
+          )}
         </CardContent>
       </Card>
 
+      {/* Task Activity Heatmap */}
+      <div className="w-fit">
+        <Card className="border-white/10">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckSquare className="w-4 h-4 text-blue-400" />Task Activity — Last 3 Months
+            </CardTitle>
+            {user?.id && (() => {
+              const cutoff = new Date();
+              cutoff.setMonth(cutoff.getMonth() - 2);
+              cutoff.setDate(1);
+              const cutoffStr = cutoff.toISOString().slice(0, 10);
+              const vis = heatmapData.filter(d => d.date >= cutoffStr);
+              return (
+                <p className="text-xs text-muted-foreground">
+                  Your completions · {vis.reduce((a, d) => a + d.count, 0)} tasks · {Math.round(vis.reduce((a, d) => a + d.minutes, 0) / 60 * 10) / 10}h · {vis.filter(d => d.count > 0).length} active days
+                </p>
+              );
+            })()}
+          </CardHeader>
+          <CardContent>
+            <TaskHeatmap data={heatmapData} />
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Main grid */}
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Left: Schedule + Projects */}
+        {/* Left: Upcoming Meetings + Projects */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Today's Schedule */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-blue-400" />Today's Schedule
-                </CardTitle>
-                <Link to="/calendar" className="text-xs text-blue-400 hover:text-blue-300">View calendar →</Link>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {todayMeetings.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Calendar className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">No meetings today</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {todayMeetings.map(m => <MeetingRow key={m.id} meeting={m} />)}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           {upcomingMeetings.length > 0 && (
             <Card>
               <CardHeader className="pb-3">
