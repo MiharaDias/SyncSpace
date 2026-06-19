@@ -243,7 +243,7 @@ export default function TasksPage() {
               </div>
             )}
           </div>
-        }
+        )}
 
       {/* Dialogs */}
       {showCreate && (
