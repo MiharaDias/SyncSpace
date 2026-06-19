@@ -11,6 +11,7 @@ import MeetingsPage from './pages/meetings/MeetingsPage';
 import TasksPage from './pages/tasks/TasksPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
 import AdminPage from './pages/admin/AdminPage';
+import AdminUserPage from './pages/admin/AdminUserPage';
 import ManagerPage from './pages/manager/ManagerPage';
 import SettingsPage from './pages/settings/SettingsPage';
 import ProjectsPage from './pages/projects/ProjectsPage';
@@ -62,6 +63,9 @@ export default function App() {
           } />
           <Route path="admin" element={
             <ProtectedRoute roles={['administrator']}><AdminPage /></ProtectedRoute>
+          } />
+          <Route path="admin/users/:userId" element={
+            <ProtectedRoute roles={['administrator']}><AdminUserPage /></ProtectedRoute>
           } />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   UserCheck, Users, Calendar, Activity, BarChart3, Trash2,
   Plus, X, Search, Mail, Building2, Send, Settings, Eye, EyeOff,
@@ -21,6 +21,7 @@ import { formatDateTime, getRoleColor } from '../../lib/utils';
 
 export default function AdminPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const activeTab = searchParams.get('tab') || 'approvals';
 
   const setTab = (tab: string) => setSearchParams({ tab });
@@ -396,7 +397,8 @@ export default function AdminPage() {
 
           <div className="space-y-2">
             {filteredUsers.map(u => (
-              <Card key={u.id} className="border-white/10">
+              <Card key={u.id} className="border-white/10 cursor-pointer hover:border-white/25 transition-colors"
+                onClick={() => navigate(`/admin/users/${u.id}`)}>
                 <CardContent className="p-3 flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -416,7 +418,7 @@ export default function AdminPage() {
                         ))}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end" onClick={e => e.stopPropagation()}>
                     {/* Role selector */}
                     <Select value={u.role} onValueChange={r => updateRole(u.id, r)}>
                       <SelectTrigger className="w-32 h-7 text-xs"><SelectValue /></SelectTrigger>

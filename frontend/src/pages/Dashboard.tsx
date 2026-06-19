@@ -174,6 +174,72 @@ export default function Dashboard() {
         <StatCard icon={<FolderKanban className="w-5 h-5 text-purple-400" />} label="Active Projects" value={overview?.active_projects ?? 0} color="purple" />
       </div>
 
+      {/* Task Activity Heatmap */}
+      <Card className="border-white/10">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="space-y-1">
+              <CardTitle className="text-base flex items-center gap-2">
+                <CheckSquare className="w-4 h-4 text-blue-400" />Task Activity
+              </CardTitle>
+              {heatmapUserId && (
+                <p className="text-xs text-muted-foreground">
+                  {heatmapUserId === user?.id ? 'Your completions' : heatmapUserName}
+                  {' · '}{heatmapData.reduce((a, d) => a + d.count, 0)} tasks · {' '}
+                  {Math.round(heatmapData.reduce((a, d) => a + d.minutes, 0) / 60 * 10) / 10}h · {' '}
+                  {heatmapData.filter(d => d.count > 0).length} active days
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              {user?.role === 'administrator' && (
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                  <Input
+                    ref={userSearchRef}
+                    placeholder="View another user…"
+                    value={userSearch}
+                    onChange={e => setUserSearch(e.target.value)}
+                    className="pl-6 h-7 text-xs w-44"
+                  />
+                  {userResults.length > 0 && (
+                    <div className="absolute top-8 left-0 z-50 w-56 rounded-lg border border-white/10 bg-gray-900 shadow-xl">
+                      {userResults.map(u => (
+                        <button key={u.id} className="w-full text-left px-3 py-2 text-xs hover:bg-white/5 text-white"
+                          onClick={() => { setHeatmapUserId(u.id); setHeatmapUserName(u.full_name); setUserSearch(''); setUserResults([]); }}>
+                          {u.full_name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                <button onClick={() => setHeatmapYear(y => y - 1)}
+                  className="p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-white">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-sm text-white font-medium w-12 text-center">{heatmapYear}</span>
+                <button onClick={() => setHeatmapYear(y => y + 1)}
+                  disabled={heatmapYear >= new Date().getFullYear()}
+                  className="p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-white disabled:opacity-30">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+              {heatmapUserId !== user?.id && (
+                <button className="text-xs text-blue-400 hover:text-blue-300"
+                  onClick={() => { setHeatmapUserId(user?.id || ''); setHeatmapUserName(user?.full_name || ''); }}>
+                  Back to mine
+                </button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <TaskHeatmap data={heatmapData} year={heatmapYear} />
+        </CardContent>
+      </Card>
+
       {/* Main grid */}
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Left: Schedule + Projects */}
@@ -374,78 +440,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Task Activity Heatmap */}
-      <Card className="border-white/10">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="space-y-1">
-              <CardTitle className="text-base flex items-center gap-2">
-                <CheckSquare className="w-4 h-4 text-blue-400" />Task Activity
-              </CardTitle>
-              {heatmapUserId && (
-                <p className="text-xs text-muted-foreground">
-                  {heatmapUserId === user?.id ? 'Your completions' : heatmapUserName}
-                  {' · '}{heatmapData.reduce((a, d) => a + d.count, 0)} tasks · {' '}
-                  {Math.round(heatmapData.reduce((a, d) => a + d.minutes, 0) / 60 * 10) / 10}h · {' '}
-                  {heatmapData.filter(d => d.count > 0).length} active days
-                </p>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              {/* Admin user search */}
-              {user?.role === 'administrator' && (
-                <div className="relative">
-                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
-                  <Input
-                    ref={userSearchRef}
-                    placeholder="View another user…"
-                    value={userSearch}
-                    onChange={e => setUserSearch(e.target.value)}
-                    className="pl-6 h-7 text-xs w-44"
-                  />
-                  {userResults.length > 0 && (
-                    <div className="absolute top-8 left-0 z-50 w-56 rounded-lg border border-white/10 bg-gray-900 shadow-xl">
-                      {userResults.map(u => (
-                        <button key={u.id} className="w-full text-left px-3 py-2 text-xs hover:bg-white/5 text-white"
-                          onClick={() => {
-                            setHeatmapUserId(u.id);
-                            setHeatmapUserName(u.full_name);
-                            setUserSearch('');
-                            setUserResults([]);
-                          }}>
-                          {u.full_name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {/* Year navigation */}
-              <div className="flex items-center gap-1">
-                <button onClick={() => setHeatmapYear(y => y - 1)}
-                  className="p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-white">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="text-sm text-white font-medium w-12 text-center">{heatmapYear}</span>
-                <button onClick={() => setHeatmapYear(y => y + 1)}
-                  disabled={heatmapYear >= new Date().getFullYear()}
-                  className="p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-white disabled:opacity-30">
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-              {heatmapUserId !== user?.id && (
-                <button className="text-xs text-blue-400 hover:text-blue-300"
-                  onClick={() => { setHeatmapUserId(user?.id || ''); setHeatmapUserName(user?.full_name || ''); }}>
-                  Back to mine
-                </button>
-              )}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <TaskHeatmap data={heatmapData} year={heatmapYear} />
-        </CardContent>
-      </Card>
     </div>
   );
 }

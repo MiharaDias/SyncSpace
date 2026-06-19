@@ -310,7 +310,9 @@ export default function TasksPage() {
                           setTimeout(() => setDragging(task), 0);
                         }}
                         onDragEnd={() => { draggingRef.current = null; setDragging(null); setDragOver(null); }}
-                        className={`cursor-grab active:cursor-grabbing transition-opacity select-none ${dragging?.id === task.id ? 'opacity-40' : ''}`}
+                        onSelectStart={e => e.preventDefault()}
+                        style={{ WebkitUserDrag: 'element', WebkitUserSelect: 'none', userSelect: 'none' } as React.CSSProperties}
+                        className={`cursor-grab active:cursor-grabbing transition-opacity ${dragging?.id === task.id ? 'opacity-40' : ''}`}
                       >
                         <TaskCard task={task} onClick={() => { if (!dragging) setSelectedTask(task); }} />
                       </div>
@@ -680,31 +682,6 @@ function TaskDetailDialog({
     : ['Not Started','In Progress','Completed','On Hold','Cancelled'];
 
   return (
-    <>
-    {pendingStatus && (
-      <Dialog open onOpenChange={() => setPendingStatus(null)}>
-        <DialogContent className="max-w-xs">
-          <DialogHeader><DialogTitle>Log Time</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">How long did this task take? (optional)</p>
-          <div className="flex gap-3">
-            <div className="flex-1 space-y-1">
-              <Label className="text-xs">Hours</Label>
-              <Input type="number" min={0} max={999} value={timeH}
-                onChange={e => setTimeH(Math.max(0, +e.target.value))} className="h-8" />
-            </div>
-            <div className="flex-1 space-y-1">
-              <Label className="text-xs">Minutes</Label>
-              <Input type="number" min={0} max={59} value={timeM}
-                onChange={e => setTimeM(Math.max(0, Math.min(59, +e.target.value)))} className="h-8" />
-            </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="ghost" size="sm" onClick={() => confirmWithTime(true)}>Skip</Button>
-            <Button size="sm" onClick={() => confirmWithTime()}>Save & Complete</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    )}
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -715,7 +692,7 @@ function TaskDetailDialog({
           <div className="grid grid-cols-3 gap-3 text-sm">
             <div>
               <p className="text-xs text-muted-foreground mb-1">Status</p>
-              <Select value={status} onValueChange={updateStatus}>
+              <Select value={pendingStatus || status} onValueChange={updateStatus}>
                 <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {statusOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
@@ -736,6 +713,31 @@ function TaskDetailDialog({
               </p>
             </div>
           </div>
+
+          {/* Inline time logging when completing */}
+          {pendingStatus && (
+            <div className="p-3 rounded-lg bg-green-600/10 border border-green-500/25 space-y-2">
+              <p className="text-xs font-medium text-green-300">How long did this task take? (optional)</p>
+              <div className="flex items-end gap-2 flex-wrap">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Hours</Label>
+                  <Input type="number" min={0} max={999} value={timeH}
+                    onChange={e => setTimeH(Math.max(0, +e.target.value))} className="h-7 w-20 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Minutes</Label>
+                  <Input type="number" min={0} max={59} value={timeM}
+                    onChange={e => setTimeM(Math.max(0, Math.min(59, +e.target.value)))} className="h-7 w-20 text-sm" />
+                </div>
+                <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-500" onClick={() => confirmWithTime()}>
+                  Save & Complete
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => confirmWithTime(true)}>
+                  Skip
+                </Button>
+              </div>
+            </div>
+          )}
 
           {task.project && (
             <p className="text-xs text-blue-400">
@@ -835,6 +837,5 @@ function TaskDetailDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    </>
   );
 }

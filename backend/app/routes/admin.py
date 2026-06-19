@@ -159,6 +159,38 @@ def all_users():
     return jsonify(result.data)
 
 
+@admin_bp.route("/users/<user_id>", methods=["GET"])
+@jwt_required()
+@require_roles("administrator")
+def get_user_detail(user_id):
+    user = q_single(supabase.table("users").select(
+        "id,full_name,username,email,department,departments,role,is_approved,is_active,created_at"
+    ).eq("id", user_id))
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    all_tasks = supabase.table("tasks").select(
+        "id,status,completed_at,time_spent_minutes"
+    ).or_(f"assigned_to.eq.{user_id},created_by.eq.{user_id}").execute().data or []
+    completed = [t for t in all_tasks if t.get("completed_at")]
+
+    audit_log = []
+    try:
+        audit_log = supabase.table("task_audit_log").select(
+            "*, task:task_id(title)"
+        ).eq("user_id", user_id).order("created_at", desc=True).limit(25).execute().data or []
+    except Exception:
+        pass
+
+    user["task_stats"] = {
+        "total": len(all_tasks),
+        "completed": len(completed),
+        "total_hours": round(sum(t.get("time_spent_minutes") or 0 for t in completed) / 60, 1),
+    }
+    user["recent_audit"] = audit_log
+    return jsonify(user)
+
+
 @admin_bp.route("/users/<user_id>/role", methods=["PUT"])
 @jwt_required()
 @require_roles("administrator")
