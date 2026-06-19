@@ -124,16 +124,28 @@ export default function TasksPage() {
     !search || t.title.toLowerCase().includes(search.toLowerCase())
   );
 
+  const [boardTimeH, setBoardTimeH] = useState(0);
+  const [boardTimeM, setBoardTimeM] = useState(0);
+  const boardIsCompletion = pendingMove
+    ? ['completed', 'done'].includes(pendingMove.newStatus.toLowerCase())
+    : false;
+
   const confirmMove = async () => {
     if (!pendingMove) return;
     setConfirming(true);
     try {
-      await api.put(`/api/tasks/${pendingMove.task.id}`, { status: pendingMove.newStatus });
+      const payload: Record<string, any> = { status: pendingMove.newStatus };
+      if (boardIsCompletion) {
+        const minutes = boardTimeH * 60 + boardTimeM;
+        if (minutes > 0) payload.time_spent_minutes = minutes;
+      }
+      await api.put(`/api/tasks/${pendingMove.task.id}`, payload);
       invalidateTasksCache();
       await fetchTasks();
     } catch { }
     setConfirming(false);
     setPendingMove(null);
+    setBoardTimeH(0); setBoardTimeM(0);
   };
 
   // Board columns: standard order + any custom statuses found in tasks
@@ -380,19 +392,40 @@ export default function TasksPage() {
       )}
 
       {/* Drag & drop confirmation */}
-      <Dialog open={!!pendingMove} onOpenChange={open => { if (!open) setPendingMove(null); }}>
+      <Dialog open={!!pendingMove} onOpenChange={open => {
+        if (!open) { setPendingMove(null); setBoardTimeH(0); setBoardTimeM(0); }
+      }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Move Task</DialogTitle>
+            <DialogTitle>{boardIsCompletion ? 'Complete Task' : 'Move Task'}</DialogTitle>
           </DialogHeader>
           {pendingMove && (
-            <p className="text-sm text-muted-foreground">
-              Move <span className="text-white font-medium">"{pendingMove.task.title}"</span> to{' '}
-              <span className="text-white font-medium">{statusLabel(pendingMove.newStatus)}</span>?
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Move <span className="text-white font-medium">"{pendingMove.task.title}"</span> to{' '}
+                <span className="text-white font-medium">{statusLabel(pendingMove.newStatus)}</span>?
+              </p>
+              {boardIsCompletion && (
+                <div className="space-y-2 pt-1 border-t border-white/10">
+                  <p className="text-xs text-muted-foreground">How long did this task take? (optional)</p>
+                  <div className="flex gap-3">
+                    <div className="flex-1 space-y-1">
+                      <Label className="text-xs">Hours</Label>
+                      <Input type="number" min={0} max={999} value={boardTimeH}
+                        onChange={e => setBoardTimeH(Math.max(0, +e.target.value))} className="h-8" />
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <Label className="text-xs">Minutes</Label>
+                      <Input type="number" min={0} max={59} value={boardTimeM}
+                        onChange={e => setBoardTimeM(Math.max(0, Math.min(59, +e.target.value)))} className="h-8" />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setPendingMove(null)}>Cancel</Button>
+            <Button variant="outline" size="sm" onClick={() => { setPendingMove(null); setBoardTimeH(0); setBoardTimeM(0); }}>Cancel</Button>
             <Button size="sm" onClick={confirmMove} disabled={confirming}>
               {confirming ? 'Moving…' : 'Confirm'}
             </Button>
@@ -577,6 +610,9 @@ function TaskDetailDialog({
   const [statuses, setStatuses] = useState<ProjectCustomStatus[]>([]);
   const [loading, setLoading] = useState(false);
   const [newSub, setNewSub] = useState({ title: '', due_date: '' });
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+  const [timeH, setTimeH] = useState(0);
+  const [timeM, setTimeM] = useState(0);
 
   useEffect(() => {
     api.get(`/api/tasks/${task.id}/comments`).then(r => setComments(r.data)).catch(() => {});
@@ -587,9 +623,27 @@ function TaskDetailDialog({
     }
   }, [task.id, task.project_id]);
 
+  const isCompletionStatus = (s: string) => ['completed', 'done'].includes(s.toLowerCase());
+
   const updateStatus = async (newStatus: string) => {
-    setStatus(newStatus);
-    await api.put(`/api/tasks/${task.id}`, { status: newStatus }).catch(() => {});
+    if (isCompletionStatus(newStatus)) {
+      setTimeH(0); setTimeM(0);
+      setPendingStatus(newStatus);
+    } else {
+      setStatus(newStatus);
+      await api.put(`/api/tasks/${task.id}`, { status: newStatus }).catch(() => {});
+    }
+  };
+
+  const confirmWithTime = async (skip = false) => {
+    if (!pendingStatus) return;
+    const minutes = skip ? 0 : timeH * 60 + timeM;
+    setStatus(pendingStatus);
+    setPendingStatus(null);
+    const payload: Record<string, any> = { status: pendingStatus };
+    if (minutes > 0) payload.time_spent_minutes = minutes;
+    await api.put(`/api/tasks/${task.id}`, payload).catch(() => {});
+    onUpdate();
   };
 
   const addComment = async () => {
@@ -626,6 +680,31 @@ function TaskDetailDialog({
     : ['Not Started','In Progress','Completed','On Hold','Cancelled'];
 
   return (
+    <>
+    {pendingStatus && (
+      <Dialog open onOpenChange={() => setPendingStatus(null)}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader><DialogTitle>Log Time</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">How long did this task take? (optional)</p>
+          <div className="flex gap-3">
+            <div className="flex-1 space-y-1">
+              <Label className="text-xs">Hours</Label>
+              <Input type="number" min={0} max={999} value={timeH}
+                onChange={e => setTimeH(Math.max(0, +e.target.value))} className="h-8" />
+            </div>
+            <div className="flex-1 space-y-1">
+              <Label className="text-xs">Minutes</Label>
+              <Input type="number" min={0} max={59} value={timeM}
+                onChange={e => setTimeM(Math.max(0, Math.min(59, +e.target.value)))} className="h-8" />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" size="sm" onClick={() => confirmWithTime(true)}>Skip</Button>
+            <Button size="sm" onClick={() => confirmWithTime()}>Save & Complete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )}
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -756,5 +835,6 @@ function TaskDetailDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

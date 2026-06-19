@@ -352,6 +352,36 @@ def get_task(task_id):
     return jsonify(_enrich_task(task))
 
 
+@tasks_bp.route("/heatmap", methods=["GET"])
+@jwt_required()
+@require_approved()
+def task_heatmap():
+    from collections import defaultdict
+    caller_id = get_jwt_identity()
+    caller = get_current_user()
+    target_id = request.args.get("user_id", caller_id)
+    if target_id != caller_id and caller.get("role") != "administrator":
+        return jsonify({"error": "Not authorized"}), 403
+    year = int(request.args.get("year", datetime.utcnow().year))
+    start = f"{year}-01-01T00:00:00"
+    end   = f"{year}-12-31T23:59:59"
+    res = supabase.table("tasks").select(
+        "id,completed_at,time_spent_minutes"
+    ).or_(f"assigned_to.eq.{target_id},created_by.eq.{target_id}").not_.is_(
+        "completed_at", "null"
+    ).gte("completed_at", start).lte("completed_at", end).execute()
+    daily: dict = defaultdict(lambda: {"count": 0, "minutes": 0})
+    for t in (res.data or []):
+        if t.get("completed_at"):
+            d = t["completed_at"][:10]
+            daily[d]["count"] += 1
+            daily[d]["minutes"] += t.get("time_spent_minutes") or 0
+    return jsonify([
+        {"date": d, "count": v["count"], "minutes": v["minutes"]}
+        for d, v in sorted(daily.items())
+    ])
+
+
 @tasks_bp.route("/<task_id>", methods=["PUT"])
 @jwt_required()
 @require_approved()
@@ -372,10 +402,11 @@ def update_task(task_id):
             return jsonify({"error": "Not authorised to edit this task"}), 403
 
     if user["role"] == "user":
-        allowed = ["status", "actual_hours"]
+        allowed = ["status", "actual_hours", "time_spent_minutes"]
     else:
         allowed = ["title", "description", "assigned_to", "due_date", "priority",
-                   "status", "department", "estimated_hours", "actual_hours", "tags"]
+                   "status", "department", "estimated_hours", "actual_hours", "tags",
+                   "time_spent_minutes"]
 
     update_data = {k: (data[k] or None if k in ("assigned_to", "due_date") else data[k])
                    for k in allowed if k in data}
