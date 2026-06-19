@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Calendar, Clock, CheckSquare, Bell, Plus, FolderKanban, BarChart3, Building2, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Calendar, Clock, CheckSquare, Bell, Plus, FolderKanban, BarChart3, Building2, Search } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -42,7 +42,6 @@ export default function Dashboard() {
   const [upcomingMeetings, setUpcomingMeetings] = useState<Meeting[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [overview, setOverview] = useState<any>(null);
-  const [heatmapYear, setHeatmapYear] = useState(new Date().getFullYear());
   const [heatmapData, setHeatmapData] = useState<{ date: string; count: number; minutes: number }[]>([]);
   const [heatmapUserId, setHeatmapUserId] = useState('');
   const [heatmapUserName, setHeatmapUserName] = useState('');
@@ -92,10 +91,14 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!heatmapUserId) return;
-    api.get(`/api/tasks/heatmap?user_id=${heatmapUserId}&year=${heatmapYear}`)
-      .then(r => setHeatmapData(r.data))
-      .catch(() => {});
-  }, [heatmapUserId, heatmapYear]);
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const needPrevYear = today.getMonth() <= 1; // Jan or Feb spans previous year
+    const reqs = [api.get(`/api/tasks/heatmap?user_id=${heatmapUserId}&year=${currentYear}`)];
+    if (needPrevYear) reqs.push(api.get(`/api/tasks/heatmap?user_id=${heatmapUserId}&year=${currentYear - 1}`));
+    Promise.all(reqs.map(r => r.catch(() => ({ data: [] }))))
+      .then(results => setHeatmapData([...results[0].data, ...(results[1]?.data || [])]));
+  }, [heatmapUserId]);
 
   useEffect(() => {
     if (!userSearch.trim() || user?.role !== 'administrator') { setUserResults([]); return; }
@@ -180,16 +183,23 @@ export default function Dashboard() {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="space-y-1">
               <CardTitle className="text-base flex items-center gap-2">
-                <CheckSquare className="w-4 h-4 text-blue-400" />Task Activity
+                <CheckSquare className="w-4 h-4 text-blue-400" />Task Activity — Last 3 Months
               </CardTitle>
-              {heatmapUserId && (
-                <p className="text-xs text-muted-foreground">
-                  {heatmapUserId === user?.id ? 'Your completions' : heatmapUserName}
-                  {' · '}{heatmapData.reduce((a, d) => a + d.count, 0)} tasks · {' '}
-                  {Math.round(heatmapData.reduce((a, d) => a + d.minutes, 0) / 60 * 10) / 10}h · {' '}
-                  {heatmapData.filter(d => d.count > 0).length} active days
-                </p>
-              )}
+              {heatmapUserId && (() => {
+                const cutoff = new Date();
+                cutoff.setMonth(cutoff.getMonth() - 2);
+                cutoff.setDate(1);
+                const cutoffStr = cutoff.toISOString().slice(0, 10);
+                const vis = heatmapData.filter(d => d.date >= cutoffStr);
+                return (
+                  <p className="text-xs text-muted-foreground">
+                    {heatmapUserId === user?.id ? 'Your completions' : heatmapUserName}
+                    {' · '}{vis.reduce((a, d) => a + d.count, 0)} tasks · {' '}
+                    {Math.round(vis.reduce((a, d) => a + d.minutes, 0) / 60 * 10) / 10}h · {' '}
+                    {vis.filter(d => d.count > 0).length} active days
+                  </p>
+                );
+              })()}
             </div>
             <div className="flex items-center gap-3">
               {user?.role === 'administrator' && (
@@ -214,18 +224,6 @@ export default function Dashboard() {
                   )}
                 </div>
               )}
-              <div className="flex items-center gap-1">
-                <button onClick={() => setHeatmapYear(y => y - 1)}
-                  className="p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-white">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="text-sm text-white font-medium w-12 text-center">{heatmapYear}</span>
-                <button onClick={() => setHeatmapYear(y => y + 1)}
-                  disabled={heatmapYear >= new Date().getFullYear()}
-                  className="p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-white disabled:opacity-30">
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
               {heatmapUserId !== user?.id && (
                 <button className="text-xs text-blue-400 hover:text-blue-300"
                   onClick={() => { setHeatmapUserId(user?.id || ''); setHeatmapUserName(user?.full_name || ''); }}>
@@ -236,7 +234,7 @@ export default function Dashboard() {
           </div>
         </CardHeader>
         <CardContent>
-          <TaskHeatmap data={heatmapData} year={heatmapYear} />
+          <TaskHeatmap data={heatmapData} />
         </CardContent>
       </Card>
 
@@ -495,12 +493,12 @@ function MeetingRow({ meeting, showDate }: { meeting: Meeting; showDate?: boolea
 const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const LEVEL_COLORS = ['bg-white/5', 'bg-blue-950', 'bg-blue-800', 'bg-blue-600', 'bg-blue-400'];
 
-function TaskHeatmap({ data, year }: {
+function TaskHeatmap({ data }: {
   data: { date: string; count: number; minutes: number }[];
-  year: number;
 }) {
   const map = Object.fromEntries(data.map(d => [d.date, d]));
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
 
   const level = (dateStr: string) => {
     const d = map[dateStr];
@@ -518,17 +516,21 @@ function TaskHeatmap({ data, year }: {
     return `${dateStr}: ${d.count} task${d.count !== 1 ? 's' : ''} · ${Math.round(d.minutes / 60 * 10) / 10}h`;
   };
 
-  const months = MONTH_LABELS.map((name, mi) => {
-    const daysInMonth = new Date(year, mi + 1, 0).getDate();
-    const firstDow = new Date(year, mi, 1).getDay();
+  // Last 3 months: 2 months ago (left) → 1 month ago → current month (right)
+  const months = [2, 1, 0].map(offset => {
+    const ref = new Date(today.getFullYear(), today.getMonth() - offset, 1);
+    const mi = ref.getMonth();
+    const yr = ref.getFullYear();
+    const daysInMonth = new Date(yr, mi + 1, 0).getDate();
+    const firstDow = new Date(yr, mi, 1).getDay();
     const days = Array.from({ length: daysInMonth }, (_, i) =>
-      `${year}-${String(mi + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`
+      `${yr}-${String(mi + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`
     );
     const cells: (string | null)[] = [...Array(firstDow).fill(null), ...days];
     while (cells.length % 7 !== 0) cells.push(null);
     const weeks: (string | null)[][] = [];
     for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
-    return { name, weeks };
+    return { name: MONTH_LABELS[mi], weeks };
   });
 
   return (
@@ -546,7 +548,7 @@ function TaskHeatmap({ data, year }: {
                         <div
                           key={di}
                           title={tooltip(dateStr)}
-                          className={`w-[11px] h-[11px] rounded-[2px] cursor-default transition-opacity hover:opacity-80 ${LEVEL_COLORS[level(dateStr)]} ${dateStr === today ? 'ring-1 ring-white/50' : ''}`}
+                          className={`w-[11px] h-[11px] rounded-[2px] cursor-default transition-opacity hover:opacity-80 ${LEVEL_COLORS[level(dateStr)]} ${dateStr === todayStr ? 'ring-1 ring-white/50' : ''}`}
                         />
                       ) : (
                         <div key={di} className="w-[11px] h-[11px]" />

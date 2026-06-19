@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Plus, ChevronRight, ListChecks, Calendar, Flag, CheckCircle2, Clock, LayoutGrid, List } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Plus, ChevronRight, ListChecks, Calendar, Flag, CheckCircle2, Clock } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { Card, CardContent } from '../../components/ui/card';
@@ -97,13 +97,6 @@ export default function TasksPage() {
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
-  const [dragging, setDragging] = useState<Task | null>(null);
-  const draggingRef = useRef<Task | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
-  const [pendingMove, setPendingMove] = useState<{ task: Task; newStatus: string } | null>(null);
-  const [confirming, setConfirming] = useState(false);
-
   const fetchTasks = async () => {
     const params = new URLSearchParams();
     if (filter.status) params.set('status', filter.status);
@@ -123,50 +116,6 @@ export default function TasksPage() {
   const filteredTasks = tasks.filter(t =>
     !search || t.title.toLowerCase().includes(search.toLowerCase())
   );
-
-  const [boardTimeH, setBoardTimeH] = useState(0);
-  const [boardTimeM, setBoardTimeM] = useState(0);
-  const boardIsCompletion = pendingMove
-    ? ['completed', 'done'].includes(pendingMove.newStatus.toLowerCase())
-    : false;
-
-  const confirmMove = async () => {
-    if (!pendingMove) return;
-    setConfirming(true);
-    try {
-      const payload: Record<string, any> = { status: pendingMove.newStatus };
-      if (boardIsCompletion) {
-        const minutes = boardTimeH * 60 + boardTimeM;
-        if (minutes > 0) payload.time_spent_minutes = minutes;
-      }
-      await api.put(`/api/tasks/${pendingMove.task.id}`, payload);
-      invalidateTasksCache();
-      await fetchTasks();
-    } catch { }
-    setConfirming(false);
-    setPendingMove(null);
-    setBoardTimeH(0); setBoardTimeM(0);
-  };
-
-  // Board columns: standard order + any custom statuses found in tasks
-  const STANDARD_STATUSES = ['not started', 'to do', 'in progress', 'on hold', 'done', 'completed', 'cancelled'];
-  const taskStatuses = Array.from(new Set(filteredTasks.map(t => t.status?.toLowerCase() || 'not started')));
-  const boardStatuses = [
-    ...STANDARD_STATUSES.filter(s => taskStatuses.includes(s)),
-    ...taskStatuses.filter(s => !STANDARD_STATUSES.includes(s)),
-  ];
-  if (boardStatuses.length === 0) boardStatuses.push('not started', 'in progress', 'done');
-
-  const statusLabel = (s: string) => s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-  const columnColor = (s: string) => {
-    const l = s.toLowerCase();
-    if (l.includes('complet') || l === 'done') return 'border-green-500/40';
-    if (l.includes('progress')) return 'border-blue-500/40';
-    if (l.includes('hold')) return 'border-yellow-500/40';
-    if (l.includes('cancel')) return 'border-red-500/40';
-    return 'border-white/10';
-  };
 
   // Group by project for better UX
   const tasksByProject: Record<string, Task[]> = {};
@@ -189,20 +138,6 @@ export default function TasksPage() {
           <p className="text-sm text-muted-foreground">{filteredTasks.length} tasks across {projects.length} projects</p>
         </div>
         <div className="flex gap-2">
-          <div className="flex border border-white/10 rounded-lg overflow-hidden">
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-1.5 text-sm flex items-center gap-1.5 transition-colors ${viewMode === 'list' ? 'bg-white/10 text-white' : 'text-muted-foreground hover:text-white'}`}
-            >
-              <List className="w-4 h-4" />List
-            </button>
-            <button
-              onClick={() => setViewMode('board')}
-              className={`px-3 py-1.5 text-sm flex items-center gap-1.5 transition-colors ${viewMode === 'board' ? 'bg-white/10 text-white' : 'text-muted-foreground hover:text-white'}`}
-            >
-              <LayoutGrid className="w-4 h-4" />Board
-            </button>
-          </div>
           <Link to="/projects">
             <Button variant="outline" size="sm" className="gap-2">
               View Projects
@@ -260,74 +195,8 @@ export default function TasksPage() {
         </Select>
       </div>
 
-      {/* Board view */}
-      {viewMode === 'board' && (
-        filteredTasks.length === 0 ? (
-          <div className="text-center py-16 text-muted-foreground">
-            <ListChecks className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p className="text-sm">No tasks found</p>
-            <Button size="sm" className="mt-4" onClick={() => setShowCreate(true)}>
-              <Plus className="w-4 h-4 mr-1" />Create Task
-            </Button>
-          </div>
-        ) : (
-          <div className="flex gap-4 overflow-x-auto pb-4">
-            {boardStatuses.map(status => {
-              const colTasks = filteredTasks.filter(t => (t.status?.toLowerCase() || 'not started') === status);
-              const isOver = dragOver === status;
-              return (
-                <div
-                  key={status}
-                  className={`flex-shrink-0 w-72 rounded-xl border bg-white/3 transition-colors ${columnColor(status)} ${isOver ? 'bg-white/8 ring-1 ring-blue-500/40' : ''}`}
-                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(status); }}
-                  onDragLeave={e => {
-                    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null);
-                  }}
-                  onDrop={e => {
-                    e.preventDefault();
-                    setDragOver(null);
-                    const dropped = draggingRef.current;
-                    draggingRef.current = null;
-                    setDragging(null);
-                    if (dropped && (dropped.status?.toLowerCase() || 'not started') !== status) {
-                      setPendingMove({ task: dropped, newStatus: status });
-                    }
-                  }}
-                >
-                  <div className="px-3 py-2.5 border-b border-white/10 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-white">{statusLabel(status)}</span>
-                    <Badge variant="secondary" className="text-xs">{colTasks.length}</Badge>
-                  </div>
-                  <div className="p-2 space-y-2 min-h-[80px]">
-                    {colTasks.map(task => (
-                      <div
-                        key={task.id}
-                        draggable
-                        onDragStart={e => {
-                          e.dataTransfer.effectAllowed = 'move';
-                          e.dataTransfer.setData('text/plain', task.id);
-                          draggingRef.current = task;
-                          setTimeout(() => setDragging(task), 0);
-                        }}
-                        onDragEnd={() => { draggingRef.current = null; setDragging(null); setDragOver(null); }}
-                        onSelectStart={e => e.preventDefault()}
-                        style={{ WebkitUserDrag: 'element', WebkitUserSelect: 'none', userSelect: 'none' } as React.CSSProperties}
-                        className={`cursor-grab active:cursor-grabbing transition-opacity ${dragging?.id === task.id ? 'opacity-40' : ''}`}
-                      >
-                        <TaskCard task={task} onClick={() => { if (!dragging) setSelectedTask(task); }} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )
-      )}
-
       {/* List view grouped by project */}
-      {viewMode === 'list' && (
-        filteredTasks.length === 0 ? (
+      {filteredTasks.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
             <ListChecks className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p className="text-sm">No tasks found</p>
@@ -374,8 +243,7 @@ export default function TasksPage() {
               </div>
             )}
           </div>
-        )
-      )}
+        }
 
       {/* Dialogs */}
       {showCreate && (
@@ -393,47 +261,6 @@ export default function TasksPage() {
         />
       )}
 
-      {/* Drag & drop confirmation */}
-      <Dialog open={!!pendingMove} onOpenChange={open => {
-        if (!open) { setPendingMove(null); setBoardTimeH(0); setBoardTimeM(0); }
-      }}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{boardIsCompletion ? 'Complete Task' : 'Move Task'}</DialogTitle>
-          </DialogHeader>
-          {pendingMove && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Move <span className="text-white font-medium">"{pendingMove.task.title}"</span> to{' '}
-                <span className="text-white font-medium">{statusLabel(pendingMove.newStatus)}</span>?
-              </p>
-              {boardIsCompletion && (
-                <div className="space-y-2 pt-1 border-t border-white/10">
-                  <p className="text-xs text-muted-foreground">How long did this task take? (optional)</p>
-                  <div className="flex gap-3">
-                    <div className="flex-1 space-y-1">
-                      <Label className="text-xs">Hours</Label>
-                      <Input type="number" min={0} max={999} value={boardTimeH}
-                        onChange={e => setBoardTimeH(Math.max(0, +e.target.value))} className="h-8" />
-                    </div>
-                    <div className="flex-1 space-y-1">
-                      <Label className="text-xs">Minutes</Label>
-                      <Input type="number" min={0} max={59} value={boardTimeM}
-                        onChange={e => setBoardTimeM(Math.max(0, Math.min(59, +e.target.value)))} className="h-8" />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => { setPendingMove(null); setBoardTimeH(0); setBoardTimeM(0); }}>Cancel</Button>
-            <Button size="sm" onClick={confirmMove} disabled={confirming}>
-              {confirming ? 'Moving…' : 'Confirm'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -604,7 +431,11 @@ function TaskDetailDialog({
 }: {
   task: Task; onClose: () => void; onUpdate: () => void;
 }) {
-  const [status, setStatus] = useState(task.status || 'Not Started');
+  const [localStatus, setLocalStatus] = useState(task.status || 'Not Started');
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [timeH, setTimeH] = useState(0);
+  const [timeM, setTimeM] = useState(0);
   const [comment, setComment] = useState('');
   const [comments, setComments] = useState<any[]>([]);
   const [auditLog, setAuditLog] = useState<any[]>([]);
@@ -612,9 +443,6 @@ function TaskDetailDialog({
   const [statuses, setStatuses] = useState<ProjectCustomStatus[]>([]);
   const [loading, setLoading] = useState(false);
   const [newSub, setNewSub] = useState({ title: '', due_date: '' });
-  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
-  const [timeH, setTimeH] = useState(0);
-  const [timeM, setTimeM] = useState(0);
 
   useEffect(() => {
     api.get(`/api/tasks/${task.id}/comments`).then(r => setComments(r.data)).catch(() => {});
@@ -627,25 +455,21 @@ function TaskDetailDialog({
 
   const isCompletionStatus = (s: string) => ['completed', 'done'].includes(s.toLowerCase());
 
-  const updateStatus = async (newStatus: string) => {
-    if (isCompletionStatus(newStatus)) {
-      setTimeH(0); setTimeM(0);
-      setPendingStatus(newStatus);
-    } else {
-      setStatus(newStatus);
-      await api.put(`/api/tasks/${task.id}`, { status: newStatus }).catch(() => {});
-    }
-  };
+  const openSaveConfirm = () => { setTimeH(0); setTimeM(0); setShowConfirm(true); };
 
-  const confirmWithTime = async (skip = false) => {
-    if (!pendingStatus) return;
-    const minutes = skip ? 0 : timeH * 60 + timeM;
-    setStatus(pendingStatus);
-    setPendingStatus(null);
-    const payload: Record<string, any> = { status: pendingStatus };
-    if (minutes > 0) payload.time_spent_minutes = minutes;
-    await api.put(`/api/tasks/${task.id}`, payload).catch(() => {});
-    onUpdate();
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const payload: Record<string, any> = { status: localStatus };
+      if (isCompletionStatus(localStatus)) {
+        const minutes = timeH * 60 + timeM;
+        if (minutes > 0) payload.time_spent_minutes = minutes;
+      }
+      await api.put(`/api/tasks/${task.id}`, payload);
+      setShowConfirm(false);
+      onUpdate();
+    } catch {}
+    setSaving(false);
   };
 
   const addComment = async () => {
@@ -676,166 +500,186 @@ function TaskDetailDialog({
     }
   };
 
-  const isOverdue = task.due_date && !['completed','done'].includes(status?.toLowerCase()) && new Date(task.due_date) < new Date();
+  const isOverdue = task.due_date && !['completed','done'].includes(localStatus?.toLowerCase()) && new Date(task.due_date) < new Date();
   const statusOptions = statuses.length > 0
     ? statuses.map(s => s.name)
     : ['Not Started','In Progress','Completed','On Hold','Cancelled'];
+  const statusChanged = localStatus !== (task.status || 'Not Started');
 
   return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="text-left pr-8">{task.title}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          {/* Meta */}
-          <div className="grid grid-cols-3 gap-3 text-sm">
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Status</p>
-              <Select value={pendingStatus || status} onValueChange={updateStatus}>
-                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {statusOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Priority</p>
-              <span className={`inline-block px-2 py-1 rounded-full text-xs ${getPriorityColor(task.priority)}`}>
-                {task.priority}
-              </span>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Due Date</p>
-              <p className={`text-sm ${isOverdue ? 'text-red-400' : ''}`}>
-                {task.due_date ? formatDate(task.due_date) : '—'}
-                {isOverdue && ' (Overdue)'}
-              </p>
-            </div>
-          </div>
-
-          {/* Inline time logging when completing */}
-          {pendingStatus && (
-            <div className="p-3 rounded-lg bg-green-600/10 border border-green-500/25 space-y-2">
-              <p className="text-xs font-medium text-green-300">How long did this task take? (optional)</p>
-              <div className="flex items-end gap-2 flex-wrap">
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Hours</Label>
-                  <Input type="number" min={0} max={999} value={timeH}
-                    onChange={e => setTimeH(Math.max(0, +e.target.value))} className="h-7 w-20 text-sm" />
+    <>
+      <Dialog open onOpenChange={onClose}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-left pr-8">{task.title}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Meta */}
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Status</p>
+                <div className="flex items-center gap-2">
+                  <Select value={localStatus} onValueChange={setLocalStatus}>
+                    <SelectTrigger className="h-8 flex-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {statusOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {statusChanged && (
+                    <Button size="sm" className="h-8 shrink-0 px-3" onClick={openSaveConfirm}>
+                      Save
+                    </Button>
+                  )}
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Minutes</Label>
-                  <Input type="number" min={0} max={59} value={timeM}
-                    onChange={e => setTimeM(Math.max(0, Math.min(59, +e.target.value)))} className="h-7 w-20 text-sm" />
-                </div>
-                <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-500" onClick={() => confirmWithTime()}>
-                  Save & Complete
-                </Button>
-                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => confirmWithTime(true)}>
-                  Skip
-                </Button>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Priority</p>
+                <span className={`inline-block px-2 py-1 rounded-full text-xs ${getPriorityColor(task.priority)}`}>
+                  {task.priority}
+                </span>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Due Date</p>
+                <p className={`text-sm ${isOverdue ? 'text-red-400' : ''}`}>
+                  {task.due_date ? formatDate(task.due_date) : '—'}
+                  {isOverdue && ' (Overdue)'}
+                </p>
               </div>
             </div>
-          )}
 
-          {task.project && (
-            <p className="text-xs text-blue-400">
-              Project: <Link to={`/projects/${task.project_id}`} className="underline hover:text-blue-300" onClick={onClose}>{task.project.name}</Link>
-            </p>
-          )}
+            {task.project && (
+              <p className="text-xs text-blue-400">
+                Project: <Link to={`/projects/${task.project_id}`} className="underline hover:text-blue-300" onClick={onClose}>{task.project.name}</Link>
+              </p>
+            )}
 
-          {task.description && (
-            <div className="p-3 rounded-lg bg-white/5">
-              <p className="text-xs text-muted-foreground mb-1">Description</p>
-              <p className="text-sm whitespace-pre-wrap">{task.description}</p>
-            </div>
-          )}
+            {task.description && (
+              <div className="p-3 rounded-lg bg-white/5">
+                <p className="text-xs text-muted-foreground mb-1">Description</p>
+                <p className="text-sm whitespace-pre-wrap">{task.description}</p>
+              </div>
+            )}
 
-          {task.assigned_user && (
-            <p className="text-sm text-muted-foreground">
-              Assigned to: <span className="text-white">{task.assigned_user.full_name}</span>
-            </p>
-          )}
+            {task.assigned_user && (
+              <p className="text-sm text-muted-foreground">
+                Assigned to: <span className="text-white">{task.assigned_user.full_name}</span>
+              </p>
+            )}
 
-          {/* Sub-deadlines */}
-          {(subDeadlines.length > 0 || true) && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Sub-deadlines</p>
-              <div className="space-y-1.5">
-                {subDeadlines.map(sub => (
-                  <label key={sub.id} className="flex items-center gap-2 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={sub.is_completed}
-                      onChange={() => toggleSub(sub)}
-                      className="w-3.5 h-3.5 rounded accent-blue-500"
-                    />
-                    <span className={`text-sm flex-1 ${sub.is_completed ? 'line-through text-muted-foreground' : 'text-white'}`}>
-                      {sub.title}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{formatDate(sub.due_date)}</span>
-                  </label>
+            {/* Sub-deadlines */}
+            {(subDeadlines.length > 0 || true) && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Sub-deadlines</p>
+                <div className="space-y-1.5">
+                  {subDeadlines.map(sub => (
+                    <label key={sub.id} className="flex items-center gap-2 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={sub.is_completed}
+                        onChange={() => toggleSub(sub)}
+                        className="w-3.5 h-3.5 rounded accent-blue-500"
+                      />
+                      <span className={`text-sm flex-1 ${sub.is_completed ? 'line-through text-muted-foreground' : 'text-white'}`}>
+                        {sub.title}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{formatDate(sub.due_date)}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex gap-2 items-center">
+                  <Input placeholder="New sub-task…" value={newSub.title}
+                    onChange={e => setNewSub(s => ({ ...s, title: e.target.value }))}
+                    className="flex-1 h-8 text-xs" />
+                  <Input type="date" value={newSub.due_date}
+                    onChange={e => setNewSub(s => ({ ...s, due_date: e.target.value }))}
+                    className="w-32 h-8 text-xs" />
+                  <Button size="sm" variant="outline" onClick={addSubDeadline} className="h-8 text-xs px-2">
+                    Add
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Comments */}
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Comments</p>
+              <div className="max-h-36 overflow-y-auto space-y-2">
+                {comments.map(c => (
+                  <div key={c.id} className="flex gap-2">
+                    <div className="w-6 h-6 rounded-full bg-blue-700 flex items-center justify-center text-[10px] text-white shrink-0">
+                      {c.user?.full_name?.[0] || '?'}
+                    </div>
+                    <div className="flex-1 bg-white/5 rounded-lg px-3 py-2">
+                      <p className="text-xs font-medium text-white">{c.user?.full_name}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{c.content}</p>
+                    </div>
+                  </div>
                 ))}
               </div>
-              {/* Add new sub-deadline */}
-              <div className="flex gap-2 items-center">
-                <Input placeholder="New sub-task…" value={newSub.title}
-                  onChange={e => setNewSub(s => ({ ...s, title: e.target.value }))}
-                  className="flex-1 h-8 text-xs" />
-                <Input type="date" value={newSub.due_date}
-                  onChange={e => setNewSub(s => ({ ...s, due_date: e.target.value }))}
-                  className="w-32 h-8 text-xs" />
-                <Button size="sm" variant="outline" onClick={addSubDeadline} className="h-8 text-xs px-2">
-                  Add
-                </Button>
+              <div className="flex gap-2">
+                <Input placeholder="Add a comment…" value={comment}
+                  onChange={e => setComment(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addComment()} />
+                <Button size="sm" onClick={addComment} disabled={loading || !comment.trim()}>Send</Button>
               </div>
             </div>
-          )}
 
-          {/* Comments */}
+            {/* Audit */}
+            {auditLog.length > 0 && (
+              <div className="space-y-1 border-t border-white/10 pt-3">
+                <p className="text-xs font-medium text-muted-foreground">Activity Log</p>
+                {auditLog.slice(0, 5).map(log => (
+                  <p key={log.id} className="text-xs text-muted-foreground">
+                    {log.user?.full_name} — {log.action.replace('_', ' ')}
+                    {log.old_value && log.new_value ? ` (${log.old_value} → ${log.new_value})` : ''}
+                    · {formatDate(log.created_at, 'MMM d, h:mm a')}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={onClose}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Status save confirmation */}
+      <Dialog open={showConfirm} onOpenChange={open => { if (!open) setShowConfirm(false); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{isCompletionStatus(localStatus) ? 'Complete Task' : 'Change Status'}</DialogTitle>
+          </DialogHeader>
           <div className="space-y-3">
-            <p className="text-sm font-medium">Comments</p>
-            <div className="max-h-36 overflow-y-auto space-y-2">
-              {comments.map(c => (
-                <div key={c.id} className="flex gap-2">
-                  <div className="w-6 h-6 rounded-full bg-blue-700 flex items-center justify-center text-[10px] text-white shrink-0">
-                    {c.user?.full_name?.[0] || '?'}
+            <p className="text-sm text-muted-foreground">
+              Change status to <span className="text-white font-medium">"{localStatus}"</span>?
+            </p>
+            {isCompletionStatus(localStatus) && (
+              <div className="space-y-2 pt-1 border-t border-white/10">
+                <p className="text-xs text-muted-foreground">How long did this task take? (optional)</p>
+                <div className="flex gap-3">
+                  <div className="flex-1 space-y-1">
+                    <Label className="text-xs">Hours</Label>
+                    <Input type="number" min={0} max={999} value={timeH}
+                      onChange={e => setTimeH(Math.max(0, +e.target.value))} className="h-8" />
                   </div>
-                  <div className="flex-1 bg-white/5 rounded-lg px-3 py-2">
-                    <p className="text-xs font-medium text-white">{c.user?.full_name}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{c.content}</p>
+                  <div className="flex-1 space-y-1">
+                    <Label className="text-xs">Minutes</Label>
+                    <Input type="number" min={0} max={59} value={timeM}
+                      onChange={e => setTimeM(Math.max(0, Math.min(59, +e.target.value)))} className="h-8" />
                   </div>
                 </div>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <Input placeholder="Add a comment…" value={comment}
-                onChange={e => setComment(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addComment()} />
-              <Button size="sm" onClick={addComment} disabled={loading || !comment.trim()}>Send</Button>
-            </div>
+              </div>
+            )}
           </div>
-
-          {/* Audit */}
-          {auditLog.length > 0 && (
-            <div className="space-y-1 border-t border-white/10 pt-3">
-              <p className="text-xs font-medium text-muted-foreground">Activity Log</p>
-              {auditLog.slice(0, 5).map(log => (
-                <p key={log.id} className="text-xs text-muted-foreground">
-                  {log.user?.full_name} — {log.action.replace('_', ' ')}
-                  {log.old_value && log.new_value ? ` (${log.old_value} → ${log.new_value})` : ''}
-                  · {formatDate(log.created_at, 'MMM d, h:mm a')}
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Close</Button>
-          <Button onClick={onUpdate}>Done</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowConfirm(false)}>Cancel</Button>
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Confirm'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
