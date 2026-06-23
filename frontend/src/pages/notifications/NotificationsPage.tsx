@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BellOff, Check, CheckCheck, Search, Calendar,
-  CheckSquare, FolderKanban, UserPlus, Clock, X,
+  CheckSquare, FolderKanban, UserPlus, Clock, X, Video, ExternalLink,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
@@ -10,7 +10,7 @@ import { Card, CardContent } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import api from '../../lib/api';
 import type { CalendarEvent, Notification } from '../../types';
-import { formatDateTime } from '../../lib/utils';
+import { formatDateTime, isUrl } from '../../lib/utils';
 import EventDetailModal from '../../components/calendar/EventDetailModal';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -253,10 +253,30 @@ export default function NotificationsPage() {
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">{n.message}</p>
                           {n.meeting && (
-                            <p className="text-xs text-blue-300 mt-1 flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {new Date(n.meeting.start_time).toLocaleString()} – {new Date(n.meeting.end_time).toLocaleTimeString()}
-                            </p>
+                            <div className="mt-1 space-y-0.5">
+                              <p className="text-xs text-blue-300 flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {new Date(n.meeting.start_time).toLocaleString()} – {new Date(n.meeting.end_time).toLocaleTimeString()}
+                              </p>
+                              {n.meeting.location && isUrl(n.meeting.location) && (
+                                <a
+                                  href={n.meeting.location}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={e => e.stopPropagation()}
+                                  className="text-xs text-green-400 flex items-center gap-1 hover:underline w-fit"
+                                >
+                                  <Video className="w-3 h-3" />
+                                  Join Meeting
+                                  <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              )}
+                              {n.meeting.location && !isUrl(n.meeting.location) && (
+                                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                  📍 {n.meeting.location}
+                                </p>
+                              )}
+                            </div>
                           )}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">

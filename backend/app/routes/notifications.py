@@ -58,11 +58,14 @@ def list_notifications():
                   if search in n.get("title", "").lower()
                   or search in n.get("message", "").lower()]
 
-    # Enrich meeting invites with meeting data for inline actions
+    # Enrich all meeting-related notifications with meeting data
+    MEETING_TYPES = {"meeting_invite", "meeting_update", "meeting_cancelled",
+                     "response_accepted", "response_rejected"}
     for n in notifs:
-        if n.get("type") == "meeting_invite" and n.get("reference_id"):
-            mtg = q_single(supabase.table("meetings").select("id,title,start_time,end_time,status").eq(
-                "id", n["reference_id"]))
+        if n.get("type") in MEETING_TYPES and n.get("reference_id"):
+            mtg = q_single(supabase.table("meetings").select(
+                "id,title,start_time,end_time,status,location"
+            ).eq("id", n["reference_id"]))
             if mtg:
                 att = q_single(supabase.table("meeting_attendees").select(
                     "response_status,attendance_type"

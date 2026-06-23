@@ -8,7 +8,7 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import type { CalendarEvent, Meeting, User } from '../../types';
 import { formatDateTime, minutesToDuration, isUrl } from '../../lib/utils';
-import { Clock, MapPin, Users, ExternalLink, Trash2, Check, X, Pencil, Search, Plus } from 'lucide-react';
+import { Clock, MapPin, Users, ExternalLink, Trash2, Check, X, Pencil, Search, Plus, Video } from 'lucide-react';
 import { format, addMinutes } from 'date-fns';
 import api from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
@@ -234,15 +234,23 @@ export default function EventDetailModal({ event, onClose, onRefresh }: Props) {
             </div>
 
             {meeting?.location && (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <MapPin className="w-4 h-4 shrink-0" />
-                {isUrl(meeting.location) ? (
-                  <a href={meeting.location} target="_blank" rel="noreferrer"
-                    className="text-blue-400 hover:underline flex items-center gap-1">
-                    Join Meeting <ExternalLink className="w-3 h-3" />
-                  </a>
-                ) : <span>{meeting.location}</span>}
-              </div>
+              isUrl(meeting.location) ? (
+                <a
+                  href={meeting.location}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600/15 border border-green-500/30 text-green-300 hover:bg-green-600/25 transition-colors w-fit"
+                >
+                  <Video className="w-4 h-4" />
+                  <span className="text-sm font-medium">Join Meeting</span>
+                  <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+                </a>
+              ) : (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <MapPin className="w-4 h-4 shrink-0" />
+                  <span className="text-sm">{meeting.location}</span>
+                </div>
+              )
             )}
 
             {meeting?.purpose && (

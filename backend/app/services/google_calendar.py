@@ -124,6 +124,9 @@ def create_google_event(meeting_data, attendee_emails, with_meet: bool = False):
                 if ep.get("entryPointType") == "video":
                     meet_link = ep.get("uri")
                     break
+            # Fallback: Google Calendar sometimes surfaces the Meet URL here
+            if not meet_link:
+                meet_link = created.get("hangoutLink")
 
         return google_id, meet_link
     except Exception as e:

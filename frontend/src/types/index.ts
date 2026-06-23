@@ -88,6 +88,7 @@ export interface Notification {
     start_time: string;
     end_time: string;
     status: string;
+    location?: string;
     my_response: 'pending' | 'accepted' | 'rejected';
   };
 }
