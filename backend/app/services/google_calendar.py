@@ -81,11 +81,15 @@ def is_system_calendar_configured() -> bool:
     )
 
 
-def create_google_event(meeting_data, attendee_emails):
-    """Create event in the system Google Calendar and invite all attendees."""
+def create_google_event(meeting_data, attendee_emails, with_meet: bool = False):
+    """Create event in the system Google Calendar and invite all attendees.
+
+    Returns (google_event_id, meet_link) where meet_link is None unless with_meet=True.
+    """
+    import secrets as _secrets
     service = get_calendar_service()
     if not service:
-        return None
+        return None, None
 
     try:
         event = {
@@ -98,15 +102,33 @@ def create_google_event(meeting_data, attendee_emails):
             "sendUpdates": "all",
             "guestsCanSeeOtherGuests": True,
         }
+        if with_meet:
+            event["conferenceData"] = {
+                "createRequest": {
+                    "requestId": _secrets.token_hex(8),
+                    "conferenceSolutionKey": {"type": "hangoutsMeet"},
+                }
+            }
+
         created = service.events().insert(
             calendarId="primary",
             body=event,
             sendNotifications=True,
+            conferenceDataVersion=1 if with_meet else 0,
         ).execute()
-        return created.get("id")
+
+        google_id = created.get("id")
+        meet_link = None
+        if with_meet:
+            for ep in created.get("conferenceData", {}).get("entryPoints", []):
+                if ep.get("entryPointType") == "video":
+                    meet_link = ep.get("uri")
+                    break
+
+        return google_id, meet_link
     except Exception as e:
         print(f"Google Calendar create event error: {e}")
-        return None
+        return None, None
 
 
 def update_google_event(event_id, meeting_data, attendee_emails):

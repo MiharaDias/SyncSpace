@@ -14,7 +14,7 @@ import { useAuthStore } from '../../store/authStore';
 import { formatTime, formatDate } from '../../lib/utils';
 import {
   Search, Users, AlertTriangle, Clock, CheckCircle, XCircle,
-  CalendarCheck, ChevronRight, ArrowRight, X
+  CalendarCheck, ChevronRight, ArrowRight, X, Video
 } from 'lucide-react';
 
 const DURATION_OPTIONS = [
@@ -64,9 +64,17 @@ export default function NewMeetingDialog({ open, initialTime, initialRequiredAtt
   const [optionalAttendees, setOptionalAttendees] = useState<User[]>([]);
   const [availability, setAvailability] = useState<AvailabilityResult | null>(null);
   const [suggestedSlots, setSuggestedSlots] = useState<SuggestedSlot[]>([]);
+  const [withGoogleMeet, setWithGoogleMeet] = useState(false);
+  const [canGoogleMeet, setCanGoogleMeet] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/api/meetings/capabilities')
+      .then(r => setCanGoogleMeet(r.data.google_meet ?? false))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (initialTime) {
@@ -164,6 +172,7 @@ export default function NewMeetingDialog({ open, initialTime, initialRequiredAtt
         start_time: start.toISOString(),
         required_attendees: requiredAttendees.map(u => u.id),
         optional_attendees: optionalAttendees.map(u => u.id),
+        with_google_meet: withGoogleMeet,
       });
       onSuccess();
     } catch (err: any) {
@@ -199,8 +208,43 @@ export default function NewMeetingDialog({ open, initialTime, initialRequiredAtt
               </div>
               <div className="space-y-2">
                 <Label>Location / Link</Label>
-                <Input placeholder="Room 204 or https://zoom.us/..." value={form.location}
-                  onChange={e => setForm({ ...form, location: e.target.value })} />
+                {withGoogleMeet ? (
+                  <div className="flex items-center gap-2 p-2.5 rounded-lg border border-blue-500/40 bg-blue-600/10">
+                    <Video className="w-4 h-4 text-blue-400 shrink-0" />
+                    <span className="text-sm text-blue-300 flex-1">Google Meet (link generated on save)</span>
+                    <button
+                      type="button"
+                      onClick={() => setWithGoogleMeet(false)}
+                      className="text-muted-foreground hover:text-white transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Room 204 or https://zoom.us/..."
+                      value={form.location}
+                      onChange={e => setForm({ ...form, location: e.target.value })}
+                      className="flex-1"
+                    />
+                    {canGoogleMeet && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 shrink-0 border-blue-500/40 text-blue-300 hover:bg-blue-600/10 whitespace-nowrap"
+                        onClick={() => {
+                          setWithGoogleMeet(true);
+                          setForm(f => ({ ...f, location: '' }));
+                        }}
+                      >
+                        <Video className="w-4 h-4" />
+                        Google Meet
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

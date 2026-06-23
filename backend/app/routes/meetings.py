@@ -5,11 +5,19 @@ from app.utils.auth_helpers import require_approved, get_current_user, q_single
 from app.services.conflict_detection import check_conflicts_for_users, get_suggested_slots
 from app.services.recurring import generate_recurring_instances
 from app.services.notifications import create_notification
-from app.services.google_calendar import create_google_event, update_google_event, cancel_google_event
+from app.services.google_calendar import create_google_event, update_google_event, cancel_google_event, is_system_calendar_configured
 from datetime import datetime, timedelta, timezone
 from dateutil import parser as dateparser
 
 meetings_bp = Blueprint("meetings", __name__)
+
+
+@meetings_bp.route("/capabilities", methods=["GET"])
+@jwt_required()
+@require_approved()
+def meeting_capabilities():
+    """Return feature flags available to any authenticated user."""
+    return jsonify({"google_meet": is_system_calendar_configured()})
 
 
 @meetings_bp.route("/", methods=["GET"])
@@ -171,10 +179,16 @@ def create_meeting():
     organizer = q_single(supabase.table("users").select("email,google_connected").eq("id", user_id))
     if organizer:
         attendee_emails.append(organizer["email"])
-    google_id = create_google_event(meeting_data, list(set(attendee_emails)))
+    with_google_meet = bool(data.get("with_google_meet"))
+    google_id, meet_link = create_google_event(meeting_data, list(set(attendee_emails)), with_meet=with_google_meet)
     if google_id:
-        supabase.table("meetings").update({"google_event_id": google_id}).eq("id", meeting_id).execute()
+        update_fields = {"google_event_id": google_id}
+        if meet_link:
+            update_fields["location"] = meet_link
+        supabase.table("meetings").update(update_fields).eq("id", meeting_id).execute()
         meeting["google_event_id"] = google_id
+        if meet_link:
+            meeting["location"] = meet_link
 
         # Auto-accept for the meeting creator — they created it so no need to RSVP.
         # If their personal Google Calendar is connected, patch their response directly.
