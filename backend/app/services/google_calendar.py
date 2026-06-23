@@ -39,12 +39,18 @@ def get_calendar_service():
         return None
 
     try:
+        from datetime import datetime, timezone
+
         expiry_raw = _get_setting(_SETTING_KEYS["expiry"])
         expiry = None
         if expiry_raw:
-            from datetime import datetime, timezone
             try:
-                expiry = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
+                # google-auth compares expiry with datetime.utcnow() (timezone-naive).
+                # Convert to naive UTC so the comparison doesn't raise TypeError.
+                if parsed.tzinfo is not None:
+                    parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                expiry = parsed
             except Exception:
                 pass
 
@@ -61,11 +67,11 @@ def get_calendar_service():
 
         if creds.expired and creds.refresh_token:
             creds.refresh(GoogleRequest())
-            from datetime import timezone
-            expiry_iso = creds.expiry.replace(tzinfo=timezone.utc).isoformat() if creds.expiry else None
-            _save_setting(_SETTING_KEYS["access_token"], creds.token)
-            if expiry_iso:
+            # creds.expiry after refresh is naive UTC — store as UTC ISO string
+            if creds.expiry:
+                expiry_iso = creds.expiry.replace(tzinfo=timezone.utc).isoformat()
                 _save_setting(_SETTING_KEYS["expiry"], expiry_iso)
+            _save_setting(_SETTING_KEYS["access_token"], creds.token)
 
         return build("calendar", "v3", credentials=creds)
     except Exception as e:
