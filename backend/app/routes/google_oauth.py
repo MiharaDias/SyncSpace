@@ -20,7 +20,7 @@ def _bg_gcal_sync(user_id: str) -> None:
 
 from app import supabase
 from app.config import Config
-from app.utils.auth_helpers import require_approved, q_single
+from app.utils.auth_helpers import require_approved, q_single, hash_password
 
 # Allow oauthlib to accept extra scopes Google may add (e.g. userinfo.profile
 # is always returned when openid is requested, even if not explicitly listed).
@@ -249,6 +249,17 @@ def complete_google_signup():
     if not departments:
         return jsonify({"error": "At least one department is required"}), 400
 
+    # ── Optional password (lets user also log in with email + password) ────────
+    import re as _re
+    _PW_RE = _re.compile(r'^(?=.*[A-Za-z])(?=.*\d).{8,}$')
+    raw_password = data.get("password", "").strip()
+    if raw_password:
+        if not _PW_RE.match(raw_password):
+            return jsonify({"error": "Password must be at least 8 characters and contain at least one letter and one number"}), 400
+        pw_hash = hash_password(raw_password)
+    else:
+        pw_hash = None  # Google-only account
+
     # Check if email was registered between flow start and now
     existing = supabase.table("users").select("*").eq("email", google_email).execute()
     if existing.data:
@@ -283,7 +294,7 @@ def complete_google_signup():
         "full_name":    google_name or google_email.split("@")[0],
         "username":     username,
         "email":        google_email,
-        "password_hash": None,          # Google-only account
+        "password_hash": pw_hash,
         "department":   departments[0],
         "departments":  departments,
         "role":         "administrator" if is_first else final_role,

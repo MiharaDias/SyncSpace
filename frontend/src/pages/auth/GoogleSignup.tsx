@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Mail, ShieldCheck } from 'lucide-react';
+import { Calendar, Mail, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import api from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
 import { useDepartmentsStore } from '../../lib/departments';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
@@ -43,6 +44,11 @@ export default function GoogleSignup() {
   const [departments, setDepartments] = useState<string[]>([]);
   const [error, setError]         = useState('');
   const [loading, setLoading]     = useState(false);
+
+  // ── Password state (shown in both modes) ──────────────────────────────────
+  const [password, setPassword]     = useState('');
+  const [confirmPw, setConfirmPw]   = useState('');
+  const [showPw, setShowPw]         = useState(false);
 
   useEffect(() => { fetchDepts(); }, [fetchDepts]);
 
@@ -87,6 +93,18 @@ export default function GoogleSignup() {
       setError('Please select at least one department.');
       return;
     }
+    if (!password) {
+      setError('Please set a password so you can also log in with email and password.');
+      return;
+    }
+    if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) {
+      setError('Password must be at least 8 characters and include at least one letter and one number.');
+      return;
+    }
+    if (password !== confirmPw) {
+      setError('Passwords do not match.');
+      return;
+    }
     setLoading(true);
     try {
       const payload: Record<string, unknown> = {
@@ -94,6 +112,7 @@ export default function GoogleSignup() {
         role:        invite ? invite.role : form.role,
         departments: effectiveDepts,
         department:  effectiveDepts[0],
+        password,
       };
       if (inviteToken) payload.invitation_token = inviteToken;
 
@@ -167,6 +186,56 @@ export default function GoogleSignup() {
                 <p className="text-xs text-blue-300 font-medium">From Google</p>
                 <p className="text-sm text-white">{prefillName}</p>
                 <p className="text-xs text-muted-foreground">{prefillEmail}</p>
+              </div>
+
+              {/* Password — always shown so user can log in with email+password too */}
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label>Set a Password</Label>
+                  <div className="relative">
+                    <Input
+                      type={showPw ? 'text' : 'password'}
+                      placeholder="Min 8 chars, at least one letter & number"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw(v => !v)}
+                      className="absolute inset-y-0 right-3 flex items-center text-muted-foreground hover:text-white transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Confirm Password</Label>
+                  <div className="relative">
+                    <Input
+                      type={showPw ? 'text' : 'password'}
+                      placeholder="Repeat password"
+                      value={confirmPw}
+                      onChange={e => setConfirmPw(e.target.value)}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw(v => !v)}
+                      className="absolute inset-y-0 right-3 flex items-center text-muted-foreground hover:text-white transition-colors"
+                      tabIndex={-1}
+                    >
+                      {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                {password && confirmPw && password !== confirmPw && (
+                  <p className="text-xs text-red-400">Passwords do not match.</p>
+                )}
+                {password && !/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password) && (
+                  <p className="text-xs text-amber-400">Must be 8+ characters with at least one letter and one number.</p>
+                )}
               </div>
 
               {inviteLoading ? (
@@ -258,7 +327,14 @@ export default function GoogleSignup() {
               <Button
                 type="submit"
                 className="w-full"
-                disabled={loading || inviteLoading || (!invite && departments.length === 0)}
+                disabled={
+                  loading ||
+                  inviteLoading ||
+                  (!invite && departments.length === 0) ||
+                  !password ||
+                  password !== confirmPw ||
+                  !/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)
+                }
               >
                 {loading ? 'Setting up your account…' : invite ? 'Finish & Enter SyncSpace' : 'Finish Setup'}
               </Button>

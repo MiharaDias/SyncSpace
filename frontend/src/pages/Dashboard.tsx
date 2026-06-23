@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Calendar, Clock, CheckSquare, Bell, Plus, FolderKanban, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, Clock, CheckSquare, CheckCircle2, Bell, Plus, FolderKanban, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -43,6 +43,7 @@ export default function Dashboard() {
   const [overview, setOverview] = useState<any>(null);
   const [heatmapData, setHeatmapData] = useState<{ date: string; count: number; minutes: number }[]>([]);
   const [monthsBack, setMonthsBack] = useState(0);
+  const [myStats, setMyStats] = useState<{ hours_this_week: number; hours_this_month: number; active_tasks: number; completed_tasks: number } | null>(null);
 
   useEffect(() => {
     const today = new Date();
@@ -63,6 +64,7 @@ export default function Dashboard() {
     }).catch(() => {});
 
     api.get('/api/tasks/dashboard').then(r => setTaskStats(r.data)).catch(() => {});
+    api.get('/api/tasks/my-stats').then(r => setMyStats(r.data)).catch(() => {});
 
     // Project overview
     api.get(`/api/projects?${deptParam}`).then(r => setProjects(r.data.slice(0, 5))).catch(() => {});
@@ -107,10 +109,10 @@ export default function Dashboard() {
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<Clock className="w-5 h-5 text-blue-400" />} label="Today's Meetings" value={todayMeetings.length} color="blue" />
-        <StatCard icon={<Bell className="w-5 h-5 text-yellow-400" />} label="Unread Alerts" value={notifications.length} color="yellow" />
-        <StatCard icon={<CheckSquare className="w-5 h-5 text-green-400" />} label="Tasks Done" value={taskStats?.done ?? 0} color="green" />
-        <StatCard icon={<FolderKanban className="w-5 h-5 text-purple-400" />} label="Active Projects" value={overview?.active_projects ?? 0} color="purple" />
+        <StatCard icon={<Clock className="w-5 h-5 text-blue-400" />} label="Hours This Week" value={myStats?.hours_this_week ?? 0} unit="h" color="blue" />
+        <StatCard icon={<BarChart3 className="w-5 h-5 text-indigo-400" />} label="Hours This Month" value={myStats?.hours_this_month ?? 0} unit="h" color="indigo" />
+        <StatCard icon={<CheckSquare className="w-5 h-5 text-amber-400" />} label="Active Tasks" value={myStats?.active_tasks ?? 0} color="amber" />
+        <StatCard icon={<CheckCircle2 className="w-5 h-5 text-green-400" />} label="Completed Tasks" value={myStats?.completed_tasks ?? 0} color="green" />
       </div>
 
       {/* Today's Schedule */}
@@ -369,12 +371,14 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
+function StatCard({ icon, label, value, unit, color }: { icon: React.ReactNode; label: string; value: number; unit?: string; color: string }) {
   const bgMap: Record<string, string> = {
     blue:   'bg-blue-600/10 border-blue-500/20',
     yellow: 'bg-yellow-600/10 border-yellow-500/20',
     green:  'bg-green-600/10 border-green-500/20',
     purple: 'bg-purple-600/10 border-purple-500/20',
+    indigo: 'bg-indigo-600/10 border-indigo-500/20',
+    amber:  'bg-amber-600/10 border-amber-500/20',
   };
   return (
     <Card className={`${bgMap[color]} border`}>
@@ -382,7 +386,9 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs text-muted-foreground font-medium">{label}</p>
-            <p className="text-3xl font-bold text-white mt-1">{value}</p>
+            <p className="text-3xl font-bold text-white mt-1">
+              {value}{unit && <span className="text-lg font-semibold text-muted-foreground ml-0.5">{unit}</span>}
+            </p>
           </div>
           <div className="p-3 rounded-xl bg-white/5">{icon}</div>
         </div>

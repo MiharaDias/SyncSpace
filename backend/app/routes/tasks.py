@@ -340,6 +340,46 @@ def task_dashboard():
     return jsonify(stats)
 
 
+@tasks_bp.route("/my-stats", methods=["GET"])
+@jwt_required()
+@require_approved()
+def my_task_stats():
+    """Per-user stats: hours this week/month + active/completed task counts."""
+    from datetime import date, timedelta
+    user_id = get_jwt_identity()
+    today = date.today()
+    week_start  = (today - timedelta(days=today.weekday())).isoformat()   # Monday
+    month_start = today.replace(day=1).isoformat()
+
+    tasks = supabase.table("tasks").select(
+        "id,status,completed_at,time_spent_minutes"
+    ).eq("assigned_to", user_id).execute().data or []
+
+    done_statuses = {"completed", "done"}
+    skip_statuses = {"completed", "done", "cancelled"}
+
+    active_tasks    = sum(1 for t in tasks if t.get("status", "").lower() not in skip_statuses)
+    completed_tasks = sum(1 for t in tasks if t.get("status", "").lower() in done_statuses)
+
+    mins_week  = 0
+    mins_month = 0
+    for t in tasks:
+        if t.get("completed_at") and t.get("time_spent_minutes"):
+            d    = t["completed_at"][:10]
+            mins = t["time_spent_minutes"] or 0
+            if d >= week_start:
+                mins_week += mins
+            if d >= month_start:
+                mins_month += mins
+
+    return jsonify({
+        "hours_this_week":  round(mins_week  / 60, 1),
+        "hours_this_month": round(mins_month / 60, 1),
+        "active_tasks":     active_tasks,
+        "completed_tasks":  completed_tasks,
+    })
+
+
 @tasks_bp.route("/<task_id>", methods=["GET"])
 @jwt_required()
 @require_approved()
