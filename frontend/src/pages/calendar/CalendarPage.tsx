@@ -17,7 +17,9 @@ type ViewMode = 'month' | 'week' | 'day';
 
 export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [view, setView] = useState<ViewMode>('week');
+  const [view, setView] = useState<ViewMode>(() =>
+    typeof window !== 'undefined' && window.innerWidth < 768 ? 'day' : 'week'
+  );
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [slotAction, setSlotAction] = useState<{ time: Date; pos: { x: number; y: number } } | null>(null);
@@ -88,27 +90,31 @@ export default function CalendarPage() {
   };
 
   return (
-    <div className="h-full flex flex-col gap-4">
-      {/* Header */}
-      <div className="flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+    <div className="h-full flex flex-col gap-3 sm:gap-4">
+      {/* Header — stacks on mobile */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
+        {/* Navigation row */}
+        <div className="flex items-center gap-1 sm:gap-2">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(-1)}>
             <ChevronLeft className="w-4 h-4" />
           </Button>
-          <h2 className="text-lg font-semibold text-white min-w-[220px] text-center">{title()}</h2>
-          <Button variant="ghost" size="icon" onClick={() => navigate(1)}>
+          <h2 className="text-sm sm:text-base font-semibold text-white flex-1 text-center min-w-0 truncate">
+            {title()}
+          </h2>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(1)}>
             <ChevronRight className="w-4 h-4" />
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setCurrentDate(new Date())} className="ml-2 text-xs">
+          <Button variant="outline" size="sm" onClick={() => setCurrentDate(new Date())} className="text-xs h-8 px-2.5">
             Today
           </Button>
         </div>
-        <div className="flex items-center gap-3">
+        {/* Controls row */}
+        <div className="flex items-center gap-2 flex-wrap">
           <Tabs value={view} onValueChange={(v) => setView(v as ViewMode)}>
-            <TabsList>
-              <TabsTrigger value="month">Month</TabsTrigger>
-              <TabsTrigger value="week">Week</TabsTrigger>
-              <TabsTrigger value="day">Day</TabsTrigger>
+            <TabsList className="h-8">
+              <TabsTrigger value="month" className="text-xs px-2.5 h-7">Month</TabsTrigger>
+              <TabsTrigger value="week"  className="text-xs px-2.5 h-7">Week</TabsTrigger>
+              <TabsTrigger value="day"   className="text-xs px-2.5 h-7">Day</TabsTrigger>
             </TabsList>
           </Tabs>
           <Button
@@ -117,13 +123,15 @@ export default function CalendarPage() {
             onClick={syncGoogleCalendar}
             disabled={syncing}
             title="Pull latest events from Google Calendar"
-            className="gap-2"
+            className="gap-1.5 h-8 text-xs px-2.5"
           >
-            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing…' : 'Sync'}
+            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{syncing ? 'Syncing…' : 'Sync'}</span>
           </Button>
-          <Button size="sm" onClick={() => { setNewMeetingTime(currentDate); }} className="gap-2">
-            <Plus className="w-4 h-4" />New Meeting
+          <Button size="sm" onClick={() => setNewMeetingTime(currentDate)} className="gap-1.5 h-8 text-xs px-2.5">
+            <Plus className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">New</span>
+            <span className="sm:hidden">Meeting</span>
           </Button>
         </div>
       </div>
@@ -248,21 +256,23 @@ function WeekView({ currentDate, events, onEventClick, onSlotClick }: any) {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="grid shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
-        <div className="border-b border-white/10" />
-        {days.map(day => (
-          <div key={day.toISOString()} className={`border-b border-l border-white/10 py-2 text-center ${isSameDay(day, new Date()) ? 'bg-blue-600/10' : ''}`}>
-            <p className="text-xs text-muted-foreground">{format(day, 'EEE')}</p>
-            <p className={`text-sm font-semibold mt-0.5 w-7 h-7 rounded-full flex items-center justify-center mx-auto ${isSameDay(day, new Date()) ? 'bg-blue-600 text-white' : 'text-white'}`}>
-              {format(day, 'd')}
-            </p>
-          </div>
-        ))}
+      {/* Header — horizontally scrollable on mobile */}
+      <div className="overflow-x-auto shrink-0">
+        <div className="grid min-w-[500px]" style={{ gridTemplateColumns: '48px repeat(7, 1fr)' }}>
+          <div className="border-b border-white/10" />
+          {days.map(day => (
+            <div key={day.toISOString()} className={`border-b border-l border-white/10 py-2 text-center ${isSameDay(day, new Date()) ? 'bg-blue-600/10' : ''}`}>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">{format(day, 'EEE')}</p>
+              <p className={`text-xs sm:text-sm font-semibold mt-0.5 w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center mx-auto ${isSameDay(day, new Date()) ? 'bg-blue-600 text-white' : 'text-white'}`}>
+                {format(day, 'd')}
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
       {/* Time Grid */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="relative grid" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+      <div className="flex-1 overflow-y-auto overflow-x-auto">
+        <div className="relative grid min-w-[500px]" style={{ gridTemplateColumns: '48px repeat(7, 1fr)' }}>
           {/* Hour labels */}
           <div>
             {HOURS.map(h => (
@@ -297,7 +307,7 @@ function DayView({ currentDate, events, onEventClick, onSlotClick }: any) {
         <p className="text-xs text-muted-foreground">{dayEvents.length} event{dayEvents.length !== 1 ? 's' : ''}</p>
       </div>
       <div className="flex-1 overflow-y-auto">
-        <div className="relative grid" style={{ gridTemplateColumns: '56px 1fr' }}>
+        <div className="relative grid" style={{ gridTemplateColumns: '48px 1fr' }}>
           <div>
             {HOURS.map(h => (
               <div key={h} className="h-14 border-b border-white/5 flex items-start justify-end pr-2 pt-1">

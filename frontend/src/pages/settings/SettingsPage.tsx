@@ -209,7 +209,7 @@ export default function SettingsPage() {
           <CardDescription>Update your display name</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Full Name</Label>
               <Input value={fullName} onChange={e => setFullName(e.target.value)} />
@@ -219,7 +219,7 @@ export default function SettingsPage() {
               <Input value={user?.email || ''} disabled className="opacity-60" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Department</Label>
               <Input value={user?.department || ''} disabled className="opacity-60" />

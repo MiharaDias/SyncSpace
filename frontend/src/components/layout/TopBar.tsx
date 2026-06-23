@@ -1,11 +1,16 @@
-import { Bell, ChevronDown, Check, Building2 } from 'lucide-react';
+import { Bell, ChevronDown, Check, Building2, Menu } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import api from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
 import { useDepartmentsStore } from '../../lib/departments';
 
-export function TopBar({ title }: { title: string }) {
+interface TopBarProps {
+  title: string;
+  onMenuToggle: () => void;
+}
+
+export function TopBar({ title, onMenuToggle }: TopBarProps) {
   const { user, currentDepartment, setCurrentDepartment } = useAuthStore();
   const { departments: allDepts, fetch: fetchDepts } = useDepartmentsStore();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -20,12 +25,10 @@ export function TopBar({ title }: { title: string }) {
       .catch(() => {});
   }, [user, location.pathname]);
 
-  // Admins need the full department list from the store
   useEffect(() => {
     if (user?.role === 'administrator') fetchDepts();
   }, [user?.role]);
 
-  // Close dept dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropRef.current && !dropRef.current.contains(e.target as Node)) {
@@ -36,7 +39,6 @@ export function TopBar({ title }: { title: string }) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Admins always see all departments; other users see their assigned departments
   const userDepts: string[] = user?.role === 'administrator'
     ? allDepts
     : user?.departments?.length
@@ -47,44 +49,51 @@ export function TopBar({ title }: { title: string }) {
 
   const canSwitch = userDepts.length > 1 || user?.role === 'administrator';
 
-  // Options: "all" for admins / multi-dept users + each individual dept
   const deptOptions: string[] = [];
-  if (user?.role === 'administrator' || userDepts.length > 1) {
-    deptOptions.push('all');
-  }
+  if (user?.role === 'administrator' || userDepts.length > 1) deptOptions.push('all');
   deptOptions.push(...userDepts);
 
-  const displayLabel = currentDepartment === 'all' ? 'All Departments' : currentDepartment;
+  const displayLabel = currentDepartment === 'all' ? 'All Depts' : currentDepartment;
 
   return (
-    <header className="h-14 border-b border-white/10 flex items-center justify-between px-6 bg-[#0a0f1e]/50 backdrop-blur-sm shrink-0">
-      <h1 className="text-lg font-semibold text-white">{title}</h1>
+    <header className="h-14 border-b border-white/10 flex items-center justify-between px-3 sm:px-6 bg-[#0a0f1e]/50 backdrop-blur-sm shrink-0 gap-2">
+      <div className="flex items-center gap-2 min-w-0">
+        {/* Hamburger — only visible on mobile */}
+        <button
+          onClick={onMenuToggle}
+          className="md:hidden text-blue-300 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5 shrink-0"
+          aria-label="Open navigation"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        <h1 className="text-base sm:text-lg font-semibold text-white truncate">{title}</h1>
+      </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
 
-        {/* ── Department indicator / switcher ─────────────────────────────── */}
+        {/* Department indicator / switcher */}
         {userDepts.length > 0 && (
           <div ref={dropRef} className="relative">
             {canSwitch ? (
-              /* Multi-dept: clickable dropdown */
               <button
                 onClick={() => setDeptOpen(o => !o)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-500/30 bg-blue-600/15 hover:bg-blue-600/25 text-sm transition-colors"
+                className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg border border-blue-500/30 bg-blue-600/15 hover:bg-blue-600/25 text-sm transition-colors"
               >
                 <Building2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                <span className="text-blue-200 font-medium max-w-[150px] truncate">{displayLabel}</span>
-                <ChevronDown className={`w-3.5 h-3.5 text-blue-300 transition-transform shrink-0 ${deptOpen ? 'rotate-180' : ''}`} />
+                <span className="text-blue-200 font-medium max-w-[80px] sm:max-w-[140px] truncate text-xs sm:text-sm">
+                  {displayLabel}
+                </span>
+                <ChevronDown className={`w-3 h-3 text-blue-300 transition-transform shrink-0 ${deptOpen ? 'rotate-180' : ''}`} />
               </button>
             ) : (
-              /* Single-dept: static pill */
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-500/20 bg-blue-600/10 text-sm">
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-blue-500/20 bg-blue-600/10 text-sm">
                 <Building2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                <span className="text-blue-200 font-medium max-w-[150px] truncate">{displayLabel}</span>
+                <span className="text-blue-200 font-medium max-w-[120px] truncate text-xs">{displayLabel}</span>
               </div>
             )}
 
             {deptOpen && canSwitch && (
-              <div className="absolute right-0 top-full mt-1.5 w-56 rounded-xl border border-white/10 bg-[#0f1629] shadow-2xl z-50 py-1.5 overflow-hidden">
+              <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl border border-white/10 bg-[#0f1629] shadow-2xl z-50 py-1.5 overflow-hidden">
                 <p className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                   Switch Department
                 </p>
@@ -95,10 +104,7 @@ export function TopBar({ title }: { title: string }) {
                     className="w-full flex items-center justify-between px-3 py-2.5 text-sm hover:bg-white/5 transition-colors text-left"
                   >
                     <div className="flex items-center gap-2">
-                      {d === 'all'
-                        ? <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
-                        : <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                      }
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${d === 'all' ? 'bg-blue-400' : 'bg-emerald-400'}`} />
                       <span className={currentDepartment === d ? 'text-blue-300 font-semibold' : 'text-white'}>
                         {d === 'all' ? 'All Departments' : d}
                       </span>
@@ -124,9 +130,9 @@ export function TopBar({ title }: { title: string }) {
           )}
         </Link>
 
-        {/* User display */}
+        {/* User name — hidden on mobile (sidebar shows it) */}
         <div className="text-right hidden sm:block">
-          <p className="text-sm font-medium text-white">{user?.full_name}</p>
+          <p className="text-sm font-medium text-white leading-tight">{user?.full_name}</p>
           <p className="text-xs text-blue-300 capitalize">{user?.role}</p>
         </div>
       </div>

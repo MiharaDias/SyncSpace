@@ -76,7 +76,7 @@ export default function MeetingsPage() {
       </div>
 
       <Input placeholder="Search meetings..." value={search} onChange={e => setSearch(e.target.value)}
-        className="max-w-sm" />
+        className="w-full sm:max-w-sm" />
 
       <Tabs defaultValue="upcoming">
         <TabsList>
@@ -226,7 +226,7 @@ function MeetingCard({ meeting, onRespond, onCancel, currentUserId }: any) {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap justify-end">
             {meeting.response_status === 'pending' && !isOrganizer && (
               <Button size="sm" className="h-7 text-xs gap-1" onClick={() => onRespond(meeting)}>
                 Respond
@@ -259,7 +259,7 @@ function MeetingCard({ meeting, onRespond, onCancel, currentUserId }: any) {
                 <p className="text-xs text-muted-foreground font-medium mb-2 flex items-center gap-1">
                   <Users className="w-3 h-3" />Attendees ({details.attendees.length})
                 </p>
-                <div className="grid grid-cols-2 gap-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
                   {details.attendees.map(att => (
                     <div key={att.id} className="flex items-center justify-between px-2 py-1 rounded bg-white/5 text-xs">
                       <span className="truncate">{att.users?.full_name}</span>

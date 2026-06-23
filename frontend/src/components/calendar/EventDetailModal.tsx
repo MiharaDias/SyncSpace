@@ -239,7 +239,7 @@ export default function EventDetailModal({ event, onClose, onRefresh }: Props) {
                   href={meeting.location}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600/15 border border-green-500/30 text-green-300 hover:bg-green-600/25 transition-colors w-fit"
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-green-600/15 border border-green-500/30 text-green-300 hover:bg-green-600/25 transition-colors w-full sm:w-fit"
                 >
                   <Video className="w-4 h-4" />
                   <span className="text-sm font-medium">Join Meeting</span>
@@ -372,7 +372,7 @@ export default function EventDetailModal({ event, onClose, onRefresh }: Props) {
             <Label>Location / Link</Label>
             <Input value={editForm.location} onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))} placeholder="Room or https://…" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>Start Time *</Label>
               <Input type="datetime-local" value={editForm.start_time}

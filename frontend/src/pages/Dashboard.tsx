@@ -140,7 +140,7 @@ export default function Dashboard() {
       </Card>
 
       {/* Task Activity Heatmap */}
-      <div className="w-fit">
+      <div className="w-full overflow-x-auto">
         <Card className="border-white/10">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-4 flex-wrap">

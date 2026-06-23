@@ -246,7 +246,7 @@ export default function NewMeetingDialog({ open, initialTime, initialRequiredAtt
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Start Time *</Label>
                   <Input type="datetime-local" value={form.start_time}
@@ -266,7 +266,7 @@ export default function NewMeetingDialog({ open, initialTime, initialRequiredAtt
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Recurrence</Label>
                   <Select value={form.recurrence_type}
@@ -678,14 +678,14 @@ function AttendeePicker({ label, selected, onChange, badgeClass }: {
         </Button>
       ) : (
         <div className="border border-white/10 rounded-lg p-3 space-y-3 bg-white/3">
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
               <Input placeholder="Search by name or email..." className="pl-7 h-8 text-xs"
                 value={search} onChange={e => setSearch(e.target.value)} />
             </div>
             <Select value={dept || '_all'} onValueChange={v => setDept(v === '_all' ? '' : v)}>
-              <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="All depts" /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-36 h-8 text-xs"><SelectValue placeholder="All depts" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="_all">All Departments</SelectItem>
                 {departments.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
