@@ -290,7 +290,7 @@ export default function AdminPage() {
     setCalMsg(null);
     setCalConnecting(true);
     try {
-      const res = await api.get('/api/google/system-calendar-connect');
+      const res = await api.get('/api/auth/google/system-calendar-connect');
       window.location.href = res.data.auth_url;
     } catch (err: any) {
       setCalMsg({ type: 'error', text: err.response?.data?.error || 'Failed to start Google OAuth' });
@@ -303,7 +303,7 @@ export default function AdminPage() {
     setCalMsg(null);
     setCalDisconnecting(true);
     try {
-      await api.post('/api/google/system-calendar-disconnect');
+      await api.post('/api/auth/google/system-calendar-disconnect');
       setCalCfg({ configured: false, email: '' });
       setCalMsg({ type: 'success', text: 'System calendar disconnected.' });
     } catch (err: any) {
