@@ -20,7 +20,7 @@ def _bg_gcal_sync(user_id: str) -> None:
 
 from app import supabase
 from app.config import Config
-from app.utils.auth_helpers import require_approved, q_single, hash_password
+from app.utils.auth_helpers import require_approved, q_single, hash_password, require_roles
 
 # Allow oauthlib to accept extra scopes Google may add (e.g. userinfo.profile
 # is always returned when openid is requested, even if not explicitly listed).
@@ -368,10 +368,40 @@ def google_callback():
     if error or not code or not state:
         return redirect(f"{Config.FRONTEND_URL}/settings?google_error=access_denied")
 
-    # FIX C2: Validate the state token — reject requests we never issued
+    # Validate the state token — reject requests we never issued
     state_data = _state_pop(state)
-    if not state_data or state_data.get("type") != "calendar":
+    if not state_data or state_data.get("type") not in ("calendar", "system_calendar"):
         return redirect(f"{Config.FRONTEND_URL}/settings?google_error=invalid_state")
+
+    # ── System Calendar setup (admin OAuth) ───────────────────────────────────
+    if state_data.get("type") == "system_calendar":
+        try:
+            flow = _make_flow(state=state)
+            flow.fetch_token(code=code)
+            creds = flow.credentials
+
+            user_info_service = build("oauth2", "v2", credentials=creds)
+            user_info = user_info_service.userinfo().get().execute()
+            google_email = user_info.get("email", "")
+
+            expiry_iso = creds.expiry.replace(tzinfo=timezone.utc).isoformat() if creds.expiry else None
+
+            from app.routes.admin import _save_setting as _sys_save
+            _sys_save("system_calendar_access_token",  creds.token)
+            if creds.refresh_token:
+                _sys_save("system_calendar_refresh_token", creds.refresh_token)
+            if expiry_iso:
+                _sys_save("system_calendar_token_expiry", expiry_iso)
+            _sys_save("system_calendar_email", google_email)
+
+            qs = urlencode({"tab": "settings", "cal_connected": "1", "cal_email": google_email})
+            return redirect(f"{Config.FRONTEND_URL}/admin?{qs}")
+        except Exception as e:
+            print(f"System calendar OAuth callback error: {e}")
+            qs = urlencode({"tab": "settings", "cal_error": "callback_failed"})
+            return redirect(f"{Config.FRONTEND_URL}/admin?{qs}")
+
+    # ── Per-user personal calendar OAuth ─────────────────────────────────────
     user_id = state_data["user_id"]
 
     try:
@@ -417,6 +447,43 @@ def disconnect_google():
         "google_connected": False,
     }).eq("id", user_id).execute()
     return jsonify({"message": "Google Calendar disconnected"})
+
+
+@google_oauth_bp.route("/system-calendar-connect", methods=["GET"])
+@jwt_required()
+@require_roles("administrator")
+def system_calendar_connect():
+    """Start OAuth flow for the system calendar account (admin only)."""
+    if not _google_configured():
+        return jsonify({"error": "Google OAuth not configured"}), 503
+
+    csrf_token = secrets.token_urlsafe(32)
+    _state_put(csrf_token, {"type": "system_calendar"})
+
+    flow = _make_flow(state=csrf_token)
+    auth_url, _ = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+        state=csrf_token,
+    )
+    return jsonify({"auth_url": auth_url})
+
+
+@google_oauth_bp.route("/system-calendar-disconnect", methods=["POST"])
+@jwt_required()
+@require_roles("administrator")
+def system_calendar_disconnect():
+    """Remove system calendar OAuth tokens from system_settings."""
+    from app.routes.admin import _save_setting as _sys_save
+    from app import supabase as _sb
+    for key in ("system_calendar_access_token", "system_calendar_refresh_token",
+                "system_calendar_token_expiry", "system_calendar_email"):
+        try:
+            _sb.table("system_settings").delete().eq("key", key).execute()
+        except Exception:
+            pass
+    return jsonify({"message": "System calendar disconnected"})
 
 
 @google_oauth_bp.route("/status", methods=["GET"])

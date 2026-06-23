@@ -6,7 +6,6 @@ from app.services.conflict_detection import check_conflicts_for_users, get_sugge
 from app.services.recurring import generate_recurring_instances
 from app.services.notifications import create_notification
 from app.services.google_calendar import create_google_event, update_google_event, cancel_google_event
-from app.routes.google_oauth import create_event_for_user
 from datetime import datetime, timedelta, timezone
 from dateutil import parser as dateparser
 
@@ -166,8 +165,10 @@ def create_meeting():
         if u:
             attendee_emails.append(u["email"])
 
-    # Google Calendar — system calendar (service account)
-    organizer = q_single(supabase.table("users").select("email").eq("id", user_id))
+    # Google Calendar — system calendar creates the event and invites all attendees.
+    # Per-user personal calendar sync is NOT done here; Google sends email invites
+    # to all attendees automatically. Per-user OAuth is used only for conflict detection.
+    organizer = q_single(supabase.table("users").select("email,google_connected").eq("id", user_id))
     if organizer:
         attendee_emails.append(organizer["email"])
     google_id = create_google_event(meeting_data, list(set(attendee_emails)))
@@ -175,13 +176,21 @@ def create_meeting():
         supabase.table("meetings").update({"google_event_id": google_id}).eq("id", meeting_id).execute()
         meeting["google_event_id"] = google_id
 
-    # Google Calendar — per-user personal calendars (OAuth)
-    all_attendee_ids = [user_id] + required_attendees + optional_attendees
-    for uid in all_attendee_ids:
-        try:
-            create_event_for_user(uid, meeting_data, list(set(attendee_emails)))
-        except Exception:
-            pass
+        # Auto-accept for the meeting creator — they created it so no need to RSVP.
+        # If their personal Google Calendar is connected, patch their response directly.
+        if organizer and organizer.get("google_connected"):
+            try:
+                from app.routes.google_oauth import get_user_calendar_service
+                creator_service = get_user_calendar_service(user_id)
+                if creator_service:
+                    creator_service.events().patch(
+                        calendarId="primary",
+                        eventId=google_id,
+                        body={"attendees": [{"email": organizer["email"], "responseStatus": "accepted"}]},
+                        sendUpdates="none",
+                    ).execute()
+            except Exception:
+                pass
 
     # Audit log
     try:

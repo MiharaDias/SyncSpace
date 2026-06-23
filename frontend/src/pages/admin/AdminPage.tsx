@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   UserCheck, Users, Calendar, Activity, BarChart3, Trash2,
   Plus, X, Search, Mail, Building2, Send, Settings, Eye, EyeOff,
-  CheckCircle2, AlertCircle, ExternalLink, Pencil,
+  CheckCircle2, AlertCircle, ExternalLink, Pencil, CalendarDays, Link2Off,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { Checkbox } from '../../components/ui/checkbox';
@@ -65,6 +65,12 @@ export default function AdminPage() {
   const [emailTesting, setEmailTesting]   = useState(false);
   const [emailMsg, setEmailMsg]           = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Calendar config
+  const [calCfg, setCalCfg]               = useState({ configured: false, email: '' });
+  const [calConnecting, setCalConnecting] = useState(false);
+  const [calDisconnecting, setCalDisconnecting] = useState(false);
+  const [calMsg, setCalMsg]               = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const load = useCallback(() => {
     Promise.allSettled([
       api.get('/api/admin/pending-users'),
@@ -75,7 +81,8 @@ export default function AdminPage() {
       api.get('/api/admin/invitations'),
       api.get('/api/admin/departments'),
       api.get('/api/admin/email-config'),
-    ]).then(([pending, users, mtgs, statsRes, logs, invRes, deptsRes, emailRes]) => {
+      api.get('/api/admin/calendar-config'),
+    ]).then(([pending, users, mtgs, statsRes, logs, invRes, deptsRes, emailRes, calRes]) => {
       if (pending.status   === 'fulfilled') setPendingUsers(pending.value.data);
       if (users.status     === 'fulfilled') setAllUsers(users.value.data);
       if (mtgs.status      === 'fulfilled') setMeetings(mtgs.value.data);
@@ -88,10 +95,32 @@ export default function AdminPage() {
         setEmailCfg(d);
         setEmailForm(f => ({ ...f, smtp_email: d.smtp_email || '', frontend_url: d.frontend_url || '' }));
       }
+      if (calRes.status === 'fulfilled') setCalCfg(calRes.value.data);
     });
   }, []);
 
   useEffect(() => { load(); fetchDepts(); }, [load, fetchDepts]);
+
+  // Handle return from Google OAuth for system calendar
+  useEffect(() => {
+    const calConnected = searchParams.get('cal_connected');
+    const calError     = searchParams.get('cal_error');
+    const calEmail     = searchParams.get('cal_email');
+    if (calConnected === '1') {
+      setCalMsg({ type: 'success', text: `System calendar connected${calEmail ? ` (${calEmail})` : ''}.` });
+      api.get('/api/admin/calendar-config').then(r => setCalCfg(r.data)).catch(() => {});
+      // Clean the URL params
+      const clean = new URLSearchParams(searchParams);
+      clean.delete('cal_connected'); clean.delete('cal_email');
+      setSearchParams(clean, { replace: true });
+    } else if (calError) {
+      setCalMsg({ type: 'error', text: 'Google Calendar connection failed. Please try again.' });
+      const clean = new URLSearchParams(searchParams);
+      clean.delete('cal_error');
+      setSearchParams(clean, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── User actions ─────────────────────────────────────────────────────────────
 
@@ -255,6 +284,34 @@ export default function AdminPage() {
     setEmailTesting(false);
   };
 
+  // ── Calendar config actions ───────────────────────────────────────────────────
+
+  const connectSystemCalendar = async () => {
+    setCalMsg(null);
+    setCalConnecting(true);
+    try {
+      const res = await api.get('/api/google/system-calendar-connect');
+      window.location.href = res.data.auth_url;
+    } catch (err: any) {
+      setCalMsg({ type: 'error', text: err.response?.data?.error || 'Failed to start Google OAuth' });
+      setCalConnecting(false);
+    }
+  };
+
+  const disconnectSystemCalendar = async () => {
+    if (!confirm('Disconnect the system calendar? Meeting creation via Google Calendar will stop working.')) return;
+    setCalMsg(null);
+    setCalDisconnecting(true);
+    try {
+      await api.post('/api/google/system-calendar-disconnect');
+      setCalCfg({ configured: false, email: '' });
+      setCalMsg({ type: 'success', text: 'System calendar disconnected.' });
+    } catch (err: any) {
+      setCalMsg({ type: 'error', text: err.response?.data?.error || 'Disconnect failed' });
+    }
+    setCalDisconnecting(false);
+  };
+
   // ── Filtered users ────────────────────────────────────────────────────────────
 
   const filteredUsers = allUsers.filter(u => {
@@ -313,8 +370,8 @@ export default function AdminPage() {
           <TabsTrigger value="logs">Activity Logs</TabsTrigger>
           <TabsTrigger value="settings" className="relative">
             Settings
-            {!emailCfg.configured && (
-              <span className="ml-1.5 w-2 h-2 bg-yellow-400 rounded-full inline-block" title="Email not configured" />
+            {(!emailCfg.configured || !calCfg.configured) && (
+              <span className="ml-1.5 w-2 h-2 bg-yellow-400 rounded-full inline-block" title="Some settings not configured" />
             )}
           </TabsTrigger>
         </TabsList>
@@ -718,6 +775,69 @@ export default function AdminPage() {
                   <Send className="w-3.5 h-3.5" />
                   {emailTesting ? 'Sending…' : 'Send Test Email'}
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── Calendar Configuration ─────────────────────────────────── */}
+          <Card className="border-white/10">
+            <CardContent className="p-5 space-y-4">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <CalendarDays className="w-4 h-4 text-blue-400" />
+                Calendar Configuration
+              </h3>
+
+              {calMsg && (
+                <div className={`p-3 rounded-lg border text-sm ${
+                  calMsg.type === 'success'
+                    ? 'bg-green-600/15 border-green-500/30 text-green-300'
+                    : 'bg-red-600/15 border-red-500/30 text-red-300'
+                }`}>
+                  {calMsg.text}
+                </div>
+              )}
+
+              {/* Status banner */}
+              <div className={`flex items-center gap-3 p-3 rounded-lg border text-sm ${
+                calCfg.configured
+                  ? 'bg-green-600/10 border-green-500/30 text-green-300'
+                  : 'bg-amber-600/10 border-amber-500/30 text-amber-300'
+              }`}>
+                {calCfg.configured
+                  ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  : <AlertCircle className="w-4 h-4 shrink-0" />}
+                {calCfg.configured
+                  ? `System calendar active — events created via ${calCfg.email}`
+                  : 'No system calendar connected — Google Calendar events will not be created for meetings'}
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Connect a dedicated Google account (e.g. <span className="text-blue-300">calendar@yourcompany.com</span>).
+                All meeting events will be created through this account with all attendees added as guests.
+                Only administrators can change this setting.
+              </p>
+
+              <div className="flex gap-3 flex-wrap">
+                <Button
+                  onClick={connectSystemCalendar}
+                  disabled={calConnecting}
+                  className="gap-2"
+                  variant={calCfg.configured ? 'outline' : 'default'}
+                >
+                  <CalendarDays className="w-3.5 h-3.5" />
+                  {calConnecting ? 'Redirecting to Google…' : calCfg.configured ? 'Reconnect / Change Account' : 'Connect System Calendar'}
+                </Button>
+                {calCfg.configured && (
+                  <Button
+                    variant="destructive"
+                    onClick={disconnectSystemCalendar}
+                    disabled={calDisconnecting}
+                    className="gap-2"
+                  >
+                    <Link2Off className="w-3.5 h-3.5" />
+                    {calDisconnecting ? 'Disconnecting…' : 'Disconnect'}
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>

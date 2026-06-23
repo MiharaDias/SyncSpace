@@ -512,6 +512,20 @@ def test_email_route():
     return jsonify({"error": err}), 500
 
 
+# ── Calendar Configuration ────────────────────────────────────────────────────
+
+@admin_bp.route("/calendar-config", methods=["GET"])
+@jwt_required()
+@require_roles("administrator")
+def get_calendar_config_route():
+    from app.services.google_calendar import is_system_calendar_configured
+    email = q_single(supabase.table("system_settings").select("value").eq("key", "system_calendar_email"))
+    return jsonify({
+        "configured":   is_system_calendar_configured(),
+        "email":        email["value"] if email else "",
+    })
+
+
 # ── Activity Logs ─────────────────────────────────────────────────────────────
 
 @admin_bp.route("/activity-logs", methods=["GET"])

@@ -1,67 +1,108 @@
-import os
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request as GoogleRequest
 from app.config import Config
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-_service = None
+_SETTING_KEYS = {
+    "access_token":  "system_calendar_access_token",
+    "refresh_token": "system_calendar_refresh_token",
+    "expiry":        "system_calendar_token_expiry",
+    "email":         "system_calendar_email",
+}
+
+
+def _get_setting(key: str):
+    from app import supabase
+    from app.utils.auth_helpers import q_single
+    row = q_single(supabase.table("system_settings").select("value").eq("key", key))
+    return row["value"] if row else None
+
+
+def _save_setting(key: str, value: str) -> None:
+    from app import supabase
+    from app.utils.auth_helpers import q_single
+    existing = q_single(supabase.table("system_settings").select("key").eq("key", key))
+    if existing:
+        supabase.table("system_settings").update({"value": value}).eq("key", key).execute()
+    else:
+        supabase.table("system_settings").insert({"key": key, "value": value}).execute()
 
 
 def get_calendar_service():
-    global _service
-    if _service:
-        return _service
+    """Return an authenticated Google Calendar service using the system calendar OAuth tokens."""
+    access_token  = _get_setting(_SETTING_KEYS["access_token"])
+    refresh_token = _get_setting(_SETTING_KEYS["refresh_token"])
 
-    creds_path = Config.GOOGLE_CALENDAR_CREDENTIALS_PATH
-    if not os.path.exists(creds_path):
-        print(f"Google Calendar credentials not found at {creds_path}")
+    if not access_token or not refresh_token:
         return None
 
     try:
-        credentials = service_account.Credentials.from_service_account_file(
-            creds_path, scopes=SCOPES
+        expiry_raw = _get_setting(_SETTING_KEYS["expiry"])
+        expiry = None
+        if expiry_raw:
+            from datetime import datetime, timezone
+            try:
+                expiry = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
+            except Exception:
+                pass
+
+        creds = Credentials(
+            token=access_token,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=Config.GOOGLE_CLIENT_ID,
+            client_secret=Config.GOOGLE_CLIENT_SECRET,
+            scopes=SCOPES,
         )
-        # Delegate to system email if using service account with domain-wide delegation
-        if Config.SYSTEM_EMAIL:
-            credentials = credentials.with_subject(Config.SYSTEM_EMAIL)
-        _service = build("calendar", "v3", credentials=credentials)
-        return _service
+        if expiry:
+            creds.expiry = expiry
+
+        if creds.expired and creds.refresh_token:
+            creds.refresh(GoogleRequest())
+            from datetime import timezone
+            expiry_iso = creds.expiry.replace(tzinfo=timezone.utc).isoformat() if creds.expiry else None
+            _save_setting(_SETTING_KEYS["access_token"], creds.token)
+            if expiry_iso:
+                _save_setting(_SETTING_KEYS["expiry"], expiry_iso)
+
+        return build("calendar", "v3", credentials=creds)
     except Exception as e:
-        print(f"Google Calendar service error: {e}")
+        print(f"System calendar service error: {e}")
         return None
 
 
+def is_system_calendar_configured() -> bool:
+    """Return True if system calendar OAuth tokens are stored."""
+    return bool(
+        _get_setting(_SETTING_KEYS["access_token"]) and
+        _get_setting(_SETTING_KEYS["refresh_token"])
+    )
+
+
 def create_google_event(meeting_data, attendee_emails):
-    """Create event in Google Calendar and invite attendees"""
+    """Create event in the system Google Calendar and invite all attendees."""
     service = get_calendar_service()
     if not service:
         return None
 
     try:
         event = {
-            "summary": f"{meeting_data['title']} (SyncSpace)",
+            "summary":  f"{meeting_data['title']} (SyncSpace)",
             "description": meeting_data.get("purpose", ""),
-            "location": meeting_data.get("location", ""),
-            "start": {
-                "dateTime": meeting_data["start_time"],
-                "timeZone": "Asia/Kolkata"
-            },
-            "end": {
-                "dateTime": meeting_data["end_time"],
-                "timeZone": "Asia/Kolkata"
-            },
+            "location":    meeting_data.get("location", ""),
+            "start": {"dateTime": meeting_data["start_time"], "timeZone": "Asia/Kolkata"},
+            "end":   {"dateTime": meeting_data["end_time"],   "timeZone": "Asia/Kolkata"},
             "attendees": [{"email": email} for email in attendee_emails],
             "sendUpdates": "all",
             "guestsCanSeeOtherGuests": True,
         }
-
         created = service.events().insert(
             calendarId="primary",
             body=event,
-            sendNotifications=True
+            sendNotifications=True,
         ).execute()
-
         return created.get("id")
     except Exception as e:
         print(f"Google Calendar create event error: {e}")
@@ -75,13 +116,12 @@ def update_google_event(event_id, meeting_data, attendee_emails):
 
     try:
         event = service.events().get(calendarId="primary", eventId=event_id).execute()
-        event["summary"] = meeting_data["title"]
+        event["summary"]     = meeting_data["title"]
         event["description"] = meeting_data.get("purpose", "")
-        event["location"] = meeting_data.get("location", "")
+        event["location"]    = meeting_data.get("location", "")
         event["start"] = {"dateTime": meeting_data["start_time"], "timeZone": "Asia/Kolkata"}
-        event["end"] = {"dateTime": meeting_data["end_time"], "timeZone": "Asia/Kolkata"}
+        event["end"]   = {"dateTime": meeting_data["end_time"],   "timeZone": "Asia/Kolkata"}
         event["attendees"] = [{"email": email} for email in attendee_emails]
-
         service.events().update(
             calendarId="primary", eventId=event_id, body=event, sendUpdates="all"
         ).execute()
