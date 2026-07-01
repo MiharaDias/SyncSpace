@@ -76,6 +76,7 @@ def list_meetings():
 def create_meeting():
     user_id = get_jwt_identity()
     data = request.json or {}
+    task_ids = [tid for tid in data.get("task_ids", []) if tid]
 
     required = ["title", "start_time"]
     for f in required:
@@ -233,6 +234,22 @@ def create_meeting():
                     "attendance_type": att_type,
                     "response_status": status
                 }).execute()
+            for tid in task_ids:
+                try:
+                    supabase.table("meeting_task_links").insert({
+                        "meeting_id": inst_meeting["id"], "task_id": tid
+                    }).execute()
+                except Exception:
+                    pass
+
+    # Link tasks to this meeting
+    for tid in task_ids:
+        try:
+            supabase.table("meeting_task_links").insert({
+                "meeting_id": meeting_id, "task_id": tid
+            }).execute()
+        except Exception:
+            pass
 
     return jsonify(meeting), 201
 
@@ -408,6 +425,11 @@ def get_meeting(meeting_id):
     organizer = q_single(supabase.table("users").select("id,full_name,email").eq(
         "id", meeting["organizer_id"]))
     meeting["organizer"] = organizer
+
+    links = supabase.table("meeting_task_links").select(
+        "task_id, tasks(id, title, status, priority)"
+    ).eq("meeting_id", meeting_id).execute().data or []
+    meeting["task_links"] = [lk["tasks"] for lk in links if lk.get("tasks")]
 
     return jsonify(meeting)
 
@@ -608,6 +630,53 @@ def update_attendees(meeting_id):
             _notify_attendee(uid, {"id": meeting_id, "title": mtg["title"]}, "optional")
 
     return jsonify({"message": "Attendees updated"})
+
+
+@meetings_bp.route("/<meeting_id>/tasks", methods=["GET"])
+@jwt_required()
+@require_approved()
+def list_meeting_tasks(meeting_id):
+    links = supabase.table("meeting_task_links").select(
+        "task_id, tasks(id, title, status, priority)"
+    ).eq("meeting_id", meeting_id).execute().data or []
+    return jsonify([lk["tasks"] for lk in links if lk.get("tasks")])
+
+
+@meetings_bp.route("/<meeting_id>/tasks", methods=["POST"])
+@jwt_required()
+@require_approved()
+def link_task(meeting_id):
+    user_id = get_jwt_identity()
+    mtg = q_single(supabase.table("meetings").select("organizer_id").eq("id", meeting_id))
+    if not mtg:
+        return jsonify({"error": "Meeting not found"}), 404
+    if mtg["organizer_id"] != user_id:
+        return jsonify({"error": "Only organizer can link tasks"}), 403
+    task_id = (request.json or {}).get("task_id")
+    if not task_id:
+        return jsonify({"error": "task_id required"}), 400
+    try:
+        supabase.table("meeting_task_links").insert({
+            "meeting_id": meeting_id, "task_id": task_id
+        }).execute()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"message": "Task linked"})
+
+
+@meetings_bp.route("/<meeting_id>/tasks/<task_id>", methods=["DELETE"])
+@jwt_required()
+@require_approved()
+def unlink_task(meeting_id, task_id):
+    user_id = get_jwt_identity()
+    mtg = q_single(supabase.table("meetings").select("organizer_id").eq("id", meeting_id))
+    if not mtg:
+        return jsonify({"error": "Meeting not found"}), 404
+    if mtg["organizer_id"] != user_id:
+        return jsonify({"error": "Only organizer can unlink tasks"}), 403
+    supabase.table("meeting_task_links").delete().eq(
+        "meeting_id", meeting_id).eq("task_id", task_id).execute()
+    return jsonify({"message": "Task unlinked"})
 
 
 def _notify_attendee(user_id, meeting, attendance_type):

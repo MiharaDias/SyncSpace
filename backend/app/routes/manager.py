@@ -93,6 +93,27 @@ def team_calendar():
     return jsonify(all_events)
 
 
+@manager_bp.route("/sync-user", methods=["POST"])
+@jwt_required()
+@require_roles("manager", "administrator")
+def sync_team_user():
+    from app.routes.calendar import sync_user_google_calendar
+    current = get_current_user()
+    data = request.get_json() or {}
+    target_id = data.get("user_id")
+    if not target_id:
+        return jsonify({"error": "user_id required"}), 400
+
+    if current["role"] == "manager":
+        dept = current.get("department")
+        user_row = q_single(supabase.table("users").select("department").eq("id", target_id))
+        if not user_row or user_row.get("department") != dept:
+            return jsonify({"error": "Not authorised"}), 403
+
+    count = sync_user_google_calendar(target_id, force=False)
+    return jsonify({"synced": count, "cached": count == -1})
+
+
 @manager_bp.route("/department-users", methods=["GET"])
 @jwt_required()
 @require_roles("manager", "administrator")

@@ -7,24 +7,34 @@ from app.routes.google_oauth import get_user_calendar_service
 
 calendar_bp = Blueprint("calendar", __name__)
 
+TTL_SECONDS = 60
+
+
+def _is_recently_synced(user_id: str) -> bool:
+    res = supabase.table("users").select("gcal_synced_at").eq("id", user_id).limit(1).execute()
+    if not res.data:
+        return False
+    synced_at = res.data[0].get("gcal_synced_at")
+    if not synced_at:
+        return False
+    last = datetime.fromisoformat(synced_at.replace("Z", "+00:00"))
+    return (datetime.now(timezone.utc) - last).total_seconds() < TTL_SECONDS
+
 
 # ── Google Calendar sync helper (importable by auth.py for login-time sync) ──
 
-def sync_user_google_calendar(user_id: str, days_ahead: int = 90) -> int:
+def sync_user_google_calendar(user_id: str, days_ahead: int = 90, force: bool = False) -> int:
     """
     Pull events from the user's Google Calendar and persist them as busy_slots
     (reason = 'Google Calendar').
 
-    Called:
-      - After login (background thread in auth.py)
-      - When the user clicks the calendar Refresh / Sync button
-      - When admin views the team calendar (per visible user)
-      - When a meeting is being scheduled (availability check)
-      - Nightly batch for all users (POST /api/calendar/sync-all, admin-only)
-
-    Returns the count of events stored.
-    Silently returns 0 if the user hasn't connected Google Calendar.
+    Returns -1 if skipped due to TTL (data is fresh enough).
+    Returns 0 if the user has no Google Calendar connected.
+    Returns count of events stored on a successful sync.
     """
+    if not force and _is_recently_synced(user_id):
+        return -1
+
     service = get_user_calendar_service(user_id)
     if not service:
         return 0
@@ -91,6 +101,13 @@ def sync_user_google_calendar(user_id: str, days_ahead: int = 90) -> int:
         except Exception:
             pass
 
+    try:
+        supabase.table("users").update(
+            {"gcal_synced_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", user_id).execute()
+    except Exception:
+        pass
+
     return count
 
 
@@ -105,7 +122,7 @@ def sync_calendar():
     Called when the user clicks the Sync / Refresh button in CalendarPage.
     """
     user_id = get_jwt_identity()
-    count = sync_user_google_calendar(user_id)
+    count = sync_user_google_calendar(user_id, force=True)
     return jsonify({
         "synced": count,
         "message": f"Synced {count} events from Google Calendar" if count else
@@ -136,7 +153,7 @@ def sync_all_calendars():
     total = 0
     for u in users:
         try:
-            total += sync_user_google_calendar(u["id"])
+            total += max(0, sync_user_google_calendar(u["id"], force=True))
         except Exception:
             pass
 

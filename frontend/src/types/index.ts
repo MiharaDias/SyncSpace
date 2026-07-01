@@ -32,6 +32,7 @@ export interface Meeting {
   status: 'active' | 'cancelled';
   created_at: string;
   attendees?: MeetingAttendee[];
+  task_links?: TaskLink[];
   user_role?: 'organizer' | 'attendee';
   attendance_type?: 'required' | 'optional';
   response_status?: 'pending' | 'accepted' | 'rejected';
@@ -46,6 +47,13 @@ export interface MeetingAttendee {
   response_status: 'pending' | 'accepted' | 'rejected';
   rejection_reason?: string;
   responded_at?: string;
+}
+
+export interface TaskLink {
+  id: string;
+  title: string;
+  status: string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
 }
 
 export interface BusySlot {

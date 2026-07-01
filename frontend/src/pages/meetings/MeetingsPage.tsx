@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Clock, MapPin, Users, Check, X, ExternalLink } from 'lucide-react';
+import { Plus, Clock, MapPin, Users, Check, X, ExternalLink, Tag } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/tabs';
@@ -265,6 +265,23 @@ function MeetingCard({ meeting, onRespond, onCancel, currentUserId }: any) {
                       <span className="truncate">{att.users?.full_name}</span>
                       <Badge variant={att.response_status === 'accepted' ? 'success' : att.response_status === 'rejected' ? 'destructive' : 'secondary'} className="text-[10px] h-4 ml-1">
                         {att.response_status}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {details.task_links && details.task_links.length > 0 && (
+              <div>
+                <p className="text-xs text-muted-foreground font-medium mb-2 flex items-center gap-1">
+                  <Tag className="w-3 h-3" />Linked Tasks ({details.task_links.length})
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                  {details.task_links.map((t: any) => (
+                    <div key={t.id} className="flex items-center justify-between px-2 py-1 rounded bg-white/5 text-xs">
+                      <span className="truncate">{t.title}</span>
+                      <Badge variant={t.status === 'done' ? 'success' : t.status === 'in_progress' ? 'default' : 'secondary'} className="text-[10px] h-4 ml-1">
+                        {t.status.replace(/_/g, ' ')}
                       </Badge>
                     </div>
                   ))}

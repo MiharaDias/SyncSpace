@@ -53,7 +53,7 @@ export default function ManagerPage() {
     if (userSearch) params.set('search', userSearch);
     if (filterDept) params.set('department', filterDept);
     api.get(`/api/users?${params}`).then(r => {
-      let results: User[] = r.data.filter((u: User) => u.id !== user?.id);
+      let results: User[] = r.data;
       if (filterRole) results = results.filter(u => u.role === filterRole);
       setSearchResults(results);
     }).catch(() => {});
@@ -73,7 +73,9 @@ export default function ManagerPage() {
   useEffect(() => { fetchTeamCalendar(); }, [fetchTeamCalendar]);
 
   const addUser = (u: User) => {
-    setSelectedUsers(prev => prev.some(s => s.id === u.id) ? prev : [...prev, u]);
+    if (selectedUsers.some(s => s.id === u.id)) return;
+    setSelectedUsers(prev => [...prev, u]);
+    api.post('/api/manager/sync-user', { user_id: u.id }).catch(() => {});
   };
 
   const removeUser = (uid: string) => {

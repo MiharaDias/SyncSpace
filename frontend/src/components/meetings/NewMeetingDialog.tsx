@@ -8,13 +8,13 @@ import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Checkbox } from '../ui/checkbox';
 import { Badge } from '../ui/badge';
-import type { User, SuggestedSlot } from '../../types';
+import type { User, SuggestedSlot, Task } from '../../types';
 import api from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
 import { formatTime, formatDate } from '../../lib/utils';
 import {
   Search, Users, AlertTriangle, Clock, CheckCircle, XCircle,
-  CalendarCheck, ChevronRight, ArrowRight, X, Video
+  CalendarCheck, ChevronRight, ArrowRight, X, Video, Tag
 } from 'lucide-react';
 
 const DURATION_OPTIONS = [
@@ -64,6 +64,7 @@ export default function NewMeetingDialog({ open, initialTime, initialRequiredAtt
   const [optionalAttendees, setOptionalAttendees] = useState<User[]>([]);
   const [availability, setAvailability] = useState<AvailabilityResult | null>(null);
   const [suggestedSlots, setSuggestedSlots] = useState<SuggestedSlot[]>([]);
+  const [linkedTasks, setLinkedTasks] = useState<Task[]>([]);
   const [withGoogleMeet, setWithGoogleMeet] = useState(false);
   const [canGoogleMeet, setCanGoogleMeet] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -173,6 +174,7 @@ export default function NewMeetingDialog({ open, initialTime, initialRequiredAtt
         required_attendees: requiredAttendees.map(u => u.id),
         optional_attendees: optionalAttendees.map(u => u.id),
         with_google_meet: withGoogleMeet,
+        task_ids: linkedTasks.map(t => t.id),
       });
       onSuccess();
     } catch (err: any) {
@@ -293,6 +295,7 @@ export default function NewMeetingDialog({ open, initialTime, initialRequiredAtt
                 onChange={setRequiredAttendees} badgeClass="bg-blue-600/20 text-blue-300 border-blue-500/30" />
               <AttendeePicker label="Optional Attendees" selected={optionalAttendees}
                 onChange={setOptionalAttendees} badgeClass="bg-purple-600/20 text-purple-300 border-purple-500/30" />
+              <TaskPicker selected={linkedTasks} onChange={setLinkedTasks} />
             </div>
 
             <DialogFooter className="gap-2">
@@ -608,6 +611,105 @@ function AttendeeAvailabilityRow({ item, type, onMoveToOptional }: {
     </div>
   );
 }
+
+// ─── Task Picker ─────────────────────────────────────────────────────────────
+function TaskPicker({ selected, onChange }: {
+  selected: Task[];
+  onChange: (tasks: Task[]) => void;
+}) {
+  const [show, setShow] = useState(false);
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
+  const [search, setSearch] = useState('');
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    api.get('/api/tasks').then(r => setAllTasks(r.data)).catch(() => {});
+  }, []);
+
+  const filtered = allTasks.filter(t =>
+    t.title.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const toggleCheck = (id: string) => {
+    const next = new Set(checked);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setChecked(next);
+  };
+
+  const addSelected = () => {
+    const toAdd = filtered.filter(t => checked.has(t.id) && !selected.find(s => s.id === t.id));
+    onChange([...selected, ...toAdd]);
+    setChecked(new Set());
+    setShow(false);
+    setSearch('');
+  };
+
+  const remove = (id: string) => onChange(selected.filter(t => t.id !== id));
+
+  const statusColor = (s: string) => {
+    if (s === 'done') return 'bg-green-600/20 text-green-300 border-green-500/30';
+    if (s === 'in_progress') return 'bg-blue-600/20 text-blue-300 border-blue-500/30';
+    return 'bg-white/10 text-white/60 border-white/20';
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>Linked Tasks</Label>
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {selected.map(t => (
+            <span key={t.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border bg-yellow-600/20 text-yellow-300 border-yellow-500/30">
+              {t.title}
+              <button onClick={() => remove(t.id)} className="hover:text-white ml-0.5">
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {!show ? (
+        <Button type="button" variant="outline" size="sm" className="gap-2 h-8" onClick={() => setShow(true)}>
+          <Tag className="w-3 h-3" />Link Tasks
+        </Button>
+      ) : (
+        <div className="border border-white/10 rounded-lg p-3 space-y-3 bg-white/3">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input placeholder="Search tasks..." className="pl-7 h-8 text-xs"
+              value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <div className="max-h-48 overflow-y-auto space-y-0.5">
+            {filtered.map(t => (
+              <label key={t.id} className="flex items-center gap-2 p-1.5 rounded hover:bg-white/5 cursor-pointer">
+                <Checkbox checked={checked.has(t.id)} onCheckedChange={() => toggleCheck(t.id)} />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm text-white truncate">{t.title}</span>
+                </div>
+                <span className={`text-[10px] border px-1.5 py-0.5 rounded shrink-0 ${statusColor(t.status)}`}>
+                  {t.status.replace(/_/g, ' ')}
+                </span>
+              </label>
+            ))}
+            {filtered.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-3">No tasks found</p>
+            )}
+          </div>
+          <div className="flex gap-2 pt-1 border-t border-white/10">
+            <div className="flex-1" />
+            <Button type="button" variant="ghost" size="sm" className="h-7"
+              onClick={() => { setShow(false); setChecked(new Set()); }}>
+              Cancel
+            </Button>
+            <Button type="button" size="sm" className="h-7" onClick={addSelected} disabled={checked.size === 0}>
+              Link ({checked.size})
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // ─── Attendee Picker ──────────────────────────────────────────────────────────
 function AttendeePicker({ label, selected, onChange, badgeClass }: {
